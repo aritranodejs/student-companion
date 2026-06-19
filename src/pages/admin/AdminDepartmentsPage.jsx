@@ -4,11 +4,13 @@ import { HiOutlinePlus, HiOutlineTrash, HiOutlinePencil } from 'react-icons/hi'
 import { useInstitutionStore } from '../../stores/institution'
 import Modal from '../../components/ui/Modal'
 import { notify } from '../../lib/notify.jsx'
+import { useConfirm } from '../../components/ui/ConfirmProvider'
 
 export default function AdminDepartmentsPage() {
   const { departments, courses, loading, fetchAdminData, createDepartment, updateDepartment, deleteDepartment } = useInstitutionStore()
   const [modal, setModal] = useState(null)
   const form = useForm()
+  const confirm = useConfirm()
 
   useEffect(() => { fetchAdminData() }, [fetchAdminData])
 
@@ -31,6 +33,21 @@ export default function AdminDepartmentsPage() {
       : await updateDepartment(modal.id, payload)
     if (error) notify.error(error.message)
     else setModal(null)
+  }
+
+  const handleDelete = async (dept) => {
+    const count = courseCount(dept.id)
+    const ok = await confirm({
+      title: 'Delete Department',
+      message: count
+        ? `Delete "${dept.name}"? This department has ${count} course(s) — remove courses first.`
+        : `Delete "${dept.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'error',
+    })
+    if (!ok) return
+    const { error } = await deleteDepartment(dept.id)
+    if (error) notify.error(error.message)
   }
 
   return (
@@ -68,7 +85,7 @@ export default function AdminDepartmentsPage() {
                   <button onClick={() => openEdit(d)} className="rounded-lg p-2 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30">
                     <HiOutlinePencil className="h-4 w-4" />
                   </button>
-                  <button onClick={() => deleteDepartment(d.id)} className="rounded-lg p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30">
+                  <button type="button" onClick={() => handleDelete(d)} className="rounded-lg p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30">
                     <HiOutlineTrash className="h-4 w-4" />
                   </button>
                 </div>

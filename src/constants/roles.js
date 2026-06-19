@@ -30,6 +30,7 @@ export const ADMIN_NAV = [
 export const TEACHER_NAV = [
   { path: '/teacher', label: 'Dashboard', icon: 'dashboard' },
   { path: '/teacher/classes', label: 'My Classes', icon: 'classes' },
+  { path: '/teacher/students', label: 'Students', icon: 'users' },
   { path: '/teacher/assignments', label: 'Assignments', icon: 'assignments' },
   { path: '/teacher/grades', label: 'Grades', icon: 'cgpa' },
   { path: '/teacher/attendance', label: 'Attendance', icon: 'attendance' },

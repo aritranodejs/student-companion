@@ -8,12 +8,14 @@ import { BADGE_DEFINITIONS } from '../constants'
 import Modal from '../components/ui/Modal'
 import EmptyState from '../components/ui/EmptyState'
 import ProgressBar from '../components/ui/ProgressBar'
+import { useConfirm } from '../components/ui/ConfirmProvider'
 
 export default function GoalsPage() {
   const user = useAuthStore((s) => s.user)
   const { goals, badges, addGoal, updateGoal, deleteGoal } = useDataStore()
   const [modalOpen, setModalOpen] = useState(false)
   const { register, handleSubmit, reset, formState: { errors } } = useForm()
+  const confirm = useConfirm()
 
   const onSubmit = async (data) => {
     const { error } = await addGoal({
@@ -44,9 +46,15 @@ export default function GoalsPage() {
     else toast.success('Goal completed! 🎉')
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this goal?')) return
-    const { error } = await deleteGoal(id)
+  const handleDelete = async (goal) => {
+    const ok = await confirm({
+      title: 'Delete Goal',
+      message: `Delete "${goal.title}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'error',
+    })
+    if (!ok) return
+    const { error } = await deleteGoal(goal.id)
     if (error) toast.error(error.message)
     else toast.success('Goal deleted')
   }
@@ -97,7 +105,7 @@ export default function GoalsPage() {
                       <h3 className="font-semibold text-slate-900 dark:text-white">{goal.title}</h3>
                       <div className="flex gap-1">
                         <button onClick={() => markComplete(goal)} className="rounded-lg p-1.5 text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/30" title="Mark complete"><HiOutlineCheck className="h-4 w-4" /></button>
-                        <button onClick={() => handleDelete(goal.id)} className="rounded-lg p-1.5 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"><HiOutlineTrash className="h-4 w-4" /></button>
+                        <button onClick={() => handleDelete(goal)} className="rounded-lg p-1.5 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"><HiOutlineTrash className="h-4 w-4" /></button>
                       </div>
                     </div>
                     <div className="mt-4">

@@ -4,12 +4,14 @@ import { HiOutlineSun, HiOutlineMoon, HiOutlineDownload, HiOutlineUpload, HiOutl
 import { useAuthStore, useDataStore, useThemeStore } from '../stores'
 import { exportToCSV, parseCSV } from '../utils/helpers'
 import { supabase } from '../lib/supabase'
+import { useConfirm } from '../components/ui/ConfirmProvider'
 
 export default function SettingsPage() {
   const { user } = useAuthStore()
   const { theme, setTheme } = useThemeStore()
   const { attendance, assignments, semesters, studySessions, exams, goals, fetchAll } = useDataStore()
   const importRef = useRef(null)
+  const confirm = useConfirm()
 
   const handleExport = () => {
     const data = {
@@ -92,8 +94,20 @@ export default function SettingsPage() {
   }
 
   const handleDeleteAccount = async () => {
-    if (!confirm('Are you sure? This will permanently delete your account and all data.')) return
-    if (!confirm('This action cannot be undone. Continue?')) return
+    const step1 = await confirm({
+      title: 'Delete Account',
+      message: 'This will permanently delete your account and all data. Are you sure?',
+      confirmLabel: 'Continue',
+      variant: 'error',
+    })
+    if (!step1) return
+    const step2 = await confirm({
+      title: 'Final Confirmation',
+      message: 'This action cannot be undone. Do you want to proceed?',
+      confirmLabel: 'Delete Forever',
+      variant: 'error',
+    })
+    if (!step2) return
     toast.error('Account deletion requires Supabase admin setup. Contact support.')
   }
 

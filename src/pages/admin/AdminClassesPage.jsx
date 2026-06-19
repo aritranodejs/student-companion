@@ -4,6 +4,8 @@ import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserAdd } from 'react-icons/hi'
 import { useInstitutionStore } from '../../stores/institution'
 import Modal from '../../components/ui/Modal'
 import { notify } from '../../lib/notify.jsx'
+import { studentMatchesClassCourse } from '../../lib/institutionRules'
+import { useConfirm } from '../../components/ui/ConfirmProvider'
 
 function classPath(c) {
   const dept = c.course?.department?.name
@@ -18,6 +20,7 @@ export default function AdminClassesPage() {
   const [enrollModal, setEnrollModal] = useState(null)
   const [filterCourse, setFilterCourse] = useState('all')
   const classForm = useForm()
+  const confirm = useConfirm()
   const teachers = allUsers.filter((u) => u.role === 'teacher')
   const students = allUsers.filter((u) => u.role === 'student')
 
@@ -39,6 +42,40 @@ export default function AdminClassesPage() {
   }
 
   const classEnrollments = (classId) => enrollments.filter((e) => e.class_id === classId)
+
+  const enrollClass = classes.find((c) => c.id === enrollModal)
+
+  const enrollableStudents = students.map((s) => {
+    const check = studentMatchesClassCourse(s, enrollClass)
+    return { student: s, ...check }
+  })
+
+  const handleDeleteClass = async (cls) => {
+    const count = classEnrollments(cls.id).length
+    const ok = await confirm({
+      title: 'Delete Class',
+      message: count
+        ? `Delete "${cls.name}"? ${count} student(s) are enrolled — they will be unenrolled.`
+        : `Delete "${cls.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'error',
+    })
+    if (!ok) return
+    const { error } = await deleteClass(cls.id)
+    if (error) notify.error(error.message)
+  }
+
+  const handleUnenroll = async (enrollment) => {
+    const ok = await confirm({
+      title: 'Remove Student',
+      message: `Remove ${enrollment.student?.name || 'this student'} from the class?`,
+      confirmLabel: 'Remove',
+      variant: 'warning',
+    })
+    if (!ok) return
+    const { error } = await unenrollStudent(enrollment.id)
+    if (error) notify.error(error.message)
+  }
 
   return (
     <div className="space-y-6">
@@ -83,7 +120,7 @@ export default function AdminClassesPage() {
                   <button onClick={() => setEnrollModal(c.id)} className="rounded-lg p-2 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30" title="Enroll students">
                     <HiOutlineUserAdd className="h-5 w-5" />
                   </button>
-                  <button onClick={() => deleteClass(c.id)} className="rounded-lg p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30">
+                  <button type="button" onClick={() => handleDeleteClass(c)} className="rounded-lg p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30">
                     <HiOutlineTrash className="h-5 w-5" />
                   </button>
                 </div>
@@ -94,7 +131,7 @@ export default function AdminClassesPage() {
                   {classEnrollments(c.id).map((e) => (
                     <span key={e.id} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs dark:bg-slate-800">
                       {e.student?.name}
-                      <button onClick={() => unenrollStudent(e.id)} className="text-red-400 hover:text-red-600">×</button>
+                      <button type="button" onClick={() => handleUnenroll(e)} className="text-red-400 hover:text-red-600">×</button>
                     </span>
                   ))}
                   {classEnrollments(c.id).length === 0 && <span className="text-xs text-slate-400">No students enrolled</span>}
@@ -130,21 +167,25 @@ export default function AdminClassesPage() {
       </Modal>
 
       <Modal isOpen={!!enrollModal} onClose={() => setEnrollModal(null)} title="Enroll Student">
+        <p className="mb-3 text-xs text-slate-500">Only students admitted to <strong>{enrollClass?.course?.code || 'this course'}</strong> can be enrolled.</p>
         <div className="max-h-64 space-y-2 overflow-y-auto">
-          {students.map((s) => {
+          {enrollableStudents.map(({ student: s, ok, reason }) => {
             const already = enrollments.some((e) => e.class_id === enrollModal && e.student_id === s.id)
+            const disabled = already || !ok
             return (
               <button
                 key={s.id}
-                disabled={already}
+                disabled={disabled}
                 onClick={async () => {
                   const { error } = await enrollStudent(enrollModal, s.id)
                   if (error) notify.error(error.message)
                 }}
-                className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-4 py-3 text-left hover:bg-indigo-50 disabled:opacity-40 dark:bg-slate-800 dark:hover:bg-indigo-950/30"
+                className="flex w-full flex-col rounded-xl bg-slate-50 px-4 py-3 text-left hover:bg-indigo-50 disabled:opacity-40 dark:bg-slate-800 dark:hover:bg-indigo-950/30"
               >
                 <span className="text-sm font-medium">{s.name}</span>
-                <span className="text-xs text-slate-400">{already ? 'Enrolled' : s.roll_number || s.email}</span>
+                <span className="text-xs text-slate-400">
+                  {already ? 'Already enrolled' : !ok ? reason : s.roll_number || s.email}
+                </span>
               </button>
             )
           })}

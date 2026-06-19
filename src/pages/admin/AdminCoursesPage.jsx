@@ -4,12 +4,14 @@ import { HiOutlinePlus, HiOutlineTrash, HiOutlinePencil } from 'react-icons/hi'
 import { useInstitutionStore } from '../../stores/institution'
 import Modal from '../../components/ui/Modal'
 import { notify } from '../../lib/notify.jsx'
+import { useConfirm } from '../../components/ui/ConfirmProvider'
 
 export default function AdminCoursesPage() {
   const { departments, courses, classes, loading, fetchAdminData, createCourse, updateCourse, deleteCourse } = useInstitutionStore()
   const [modal, setModal] = useState(null)
   const [filterDept, setFilterDept] = useState('all')
   const form = useForm()
+  const confirm = useConfirm()
 
   useEffect(() => { fetchAdminData() }, [fetchAdminData])
 
@@ -48,6 +50,21 @@ export default function AdminCoursesPage() {
       : await updateCourse(modal.id, payload)
     if (error) notify.error(error.message)
     else setModal(null)
+  }
+
+  const handleDelete = async (course) => {
+    const count = classCount(course.id)
+    const ok = await confirm({
+      title: 'Delete Course',
+      message: count
+        ? `Delete "${course.name}"? This course has ${count} class(es) — remove classes first.`
+        : `Delete "${course.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'error',
+    })
+    if (!ok) return
+    const { error } = await deleteCourse(course.id)
+    if (error) notify.error(error.message)
   }
 
   return (
@@ -97,7 +114,7 @@ export default function AdminCoursesPage() {
                   <button onClick={() => openEdit(c)} className="rounded-lg p-2 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30">
                     <HiOutlinePencil className="h-4 w-4" />
                   </button>
-                  <button onClick={() => deleteCourse(c.id)} className="rounded-lg p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30">
+                  <button type="button" onClick={() => handleDelete(c)} className="rounded-lg p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30">
                     <HiOutlineTrash className="h-4 w-4" />
                   </button>
                 </div>

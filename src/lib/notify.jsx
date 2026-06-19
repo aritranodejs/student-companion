@@ -6,6 +6,7 @@ import {
   HiOutlineDocumentText,
   HiOutlineCalendar,
   HiOutlineClipboardCheck,
+  HiOutlineX,
 } from 'react-icons/hi'
 
 const STYLES = {
@@ -49,22 +50,28 @@ const STYLES = {
 function show(type, message, title) {
   const config = STYLES[type] || STYLES.info
   const Icon = config.icon
-  const text = title ? `${title}: ${message}` : message
 
   return toast.custom(
     (t) => (
       <div
         className={`${t.visible ? 'animate-enter' : 'animate-leave'} pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-2xl p-4 shadow-xl ${config.className}`}
-        onClick={() => toast.dismiss(t.id)}
       >
         <Icon className={`mt-0.5 h-6 w-6 shrink-0 ${config.iconColor}`} />
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           {title && <p className="text-sm font-semibold">{title}</p>}
           <p className={`text-sm ${title ? 'mt-0.5 opacity-90' : 'font-medium'}`}>{message}</p>
         </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); toast.dismiss(t.id) }}
+          className="shrink-0 rounded-lg p-1 text-slate-400 transition hover:bg-black/5 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-slate-200"
+          aria-label="Dismiss"
+        >
+          <HiOutlineX className="h-5 w-5" />
+        </button>
       </div>
     ),
-    { duration: 4000, position: 'top-right' }
+    { duration: 5000, position: 'top-right' }
   )
 }
 

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { HiOutlineSearch } from 'react-icons/hi'
+import { HiOutlineSearch, HiOutlinePencil } from 'react-icons/hi'
+import { useAuthStore } from '../../stores'
 import { useInstitutionStore } from '../../stores/institution'
+import UserEditModal from '../../components/admin/UserEditModal'
 import RoleBadge from '../../components/ui/RoleBadge'
-import { ROLE_LABELS, ROLES } from '../../constants/roles'
+import { ROLE_LABELS } from '../../constants/roles'
 import { notify } from '../../lib/notify.jsx'
 
 function userDeptCourse(u, departments, courses) {
@@ -19,9 +21,11 @@ function userDeptCourse(u, departments, courses) {
 }
 
 export default function AdminUsersPage() {
-  const { allUsers, departments, courses, loading, fetchAdminData, updateUserRole } = useInstitutionStore()
+  const currentUser = useAuthStore((s) => s.user)
+  const { allUsers, departments, courses, loading, fetchAdminData, updateUserProfile } = useInstitutionStore()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
+  const [editUser, setEditUser] = useState(null)
 
   useEffect(() => { fetchAdminData() }, [fetchAdminData])
 
@@ -31,16 +35,20 @@ export default function AdminUsersPage() {
     return matchSearch && matchRole
   })
 
-  const handleRoleChange = async (userId, role) => {
-    const { error } = await updateUserRole(userId, role)
+  const handleSave = async (payload) => {
+    const { error } = await updateUserProfile(editUser.id, payload, {
+      id: currentUser.id,
+      role: 'admin',
+    })
     if (error) notify.error(error.message)
+    else setEditUser(null)
   }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="page-title">User Management</h1>
-        <p className="page-subtitle">Assign roles — Admin, Teacher, or Student</p>
+        <p className="page-subtitle">Edit student admission (dept/course), assign roles, update details</p>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -65,7 +73,7 @@ export default function AdminUsersPage() {
                 <th className="px-5 py-3">Roll No.</th>
                 <th className="px-5 py-3">Dept / Course</th>
                 <th className="px-5 py-3">Role</th>
-                <th className="px-5 py-3">Change Role</th>
+                <th className="px-5 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -85,19 +93,27 @@ export default function AdminUsersPage() {
                   <td className="px-5 py-4 text-slate-500">{userDeptCourse(u, departments, courses)}</td>
                   <td className="px-5 py-4"><RoleBadge role={u.role} /></td>
                   <td className="px-5 py-4">
-                    <select
-                      value={u.role}
-                      onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                      className="input-field w-32 py-1.5 text-xs"
-                    >
-                      {Object.values(ROLES).map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-                    </select>
+                    <button onClick={() => setEditUser(u)} className="inline-flex items-center gap-1 text-indigo-600 hover:underline">
+                      <HiOutlinePencil className="h-4 w-4" /> Edit
+                    </button>
                   </td>
                 </motion.tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {editUser && (
+        <UserEditModal
+          user={editUser}
+          departments={departments}
+          courses={courses}
+          canEditRole
+          isSelfAdmin={editUser.id === currentUser?.id}
+          onClose={() => setEditUser(null)}
+          onSave={handleSave}
+        />
       )}
     </div>
   )

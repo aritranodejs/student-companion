@@ -93,6 +93,15 @@
   animation: toast-enter 0.25s ease-out;
 }
 
+@keyframes toast-leave {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+
+.animate-leave {
+  animation: toast-leave 0.2s ease-in forwards;
+}
+
 @keyframes wave {
   0%, 100% { transform: rotate(0deg); }
   25% { transform: rotate(14deg); }

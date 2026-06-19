@@ -8,6 +8,7 @@ import { calcGPA } from '../../utils/helpers'
 import { GRADES } from '../../constants'
 import Modal from '../../components/ui/Modal'
 import { notify } from '../../lib/notify.jsx'
+import { useConfirm } from '../../components/ui/ConfirmProvider'
 
 export default function TeacherGradesPage() {
   const user = useAuthStore((s) => s.user)
@@ -21,6 +22,7 @@ export default function TeacherGradesPage() {
   const [activeSemester, setActiveSemester] = useState(null)
   const semForm = useForm()
   const subForm = useForm()
+  const confirm = useConfirm()
 
   useEffect(() => {
     if (user?.id) fetchTeacherClasses(user.id)
@@ -91,9 +93,16 @@ export default function TeacherGradesPage() {
     }
   }
 
-  const handleDeleteSemester = async (id) => {
-    if (!confirm('Delete this semester record?')) return
+  const handleDeleteSemester = async (id, name) => {
+    const ok = await confirm({
+      title: 'Delete Semester',
+      message: `Delete "${name}" and all subject grades in this semester?`,
+      confirmLabel: 'Delete',
+      variant: 'error',
+    })
+    if (!ok) return
     await supabase.from('semesters').delete().eq('id', id)
+    notify.success('Semester deleted')
     loadSemesters()
   }
 
@@ -130,7 +139,7 @@ export default function TeacherGradesPage() {
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => { setActiveSemester(sem.id); subForm.reset(); setSubModal(true) }} className="btn-secondary text-xs">Add Subject</button>
-                    <button onClick={() => handleDeleteSemester(sem.id)} className="text-red-400"><HiOutlineTrash className="h-5 w-5" /></button>
+                    <button onClick={() => handleDeleteSemester(sem.id, sem.semester_name)} className="text-red-400"><HiOutlineTrash className="h-5 w-5" /></button>
                   </div>
                 </div>
                 {(sem.subjects || []).length > 0 && (

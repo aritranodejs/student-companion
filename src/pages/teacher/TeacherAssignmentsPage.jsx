@@ -7,6 +7,7 @@ import Modal from '../../components/ui/Modal'
 import AssignmentSubmissionsPanel from '../../components/assignments/AssignmentSubmissionsPanel'
 import { PRIORITIES } from '../../constants'
 import { notify } from '../../lib/notify.jsx'
+import { useConfirm } from '../../components/ui/ConfirmProvider'
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineClipboardList } from 'react-icons/hi'
 
 export default function TeacherAssignmentsPage() {
@@ -19,6 +20,7 @@ export default function TeacherAssignmentsPage() {
   const [enrolledCounts, setEnrolledCounts] = useState({})
   const form = useForm()
   const profile = useAuthStore((s) => s.profile)
+  const confirm = useConfirm()
 
   useEffect(() => {
     if (user?.id) {
@@ -63,8 +65,14 @@ export default function TeacherAssignmentsPage() {
     else { setModalOpen(false); form.reset(); loadAssignments() }
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this assignment?')) return
+  const handleDelete = async (id, title) => {
+    const ok = await confirm({
+      title: 'Delete Assignment',
+      message: `Delete "${title}"? All student submissions for this assignment will also be removed.`,
+      confirmLabel: 'Delete',
+      variant: 'error',
+    })
+    if (!ok) return
     await supabase.from('assignments').delete().eq('id', id)
     notify.success('Assignment deleted')
     loadAssignments()
@@ -101,7 +109,7 @@ export default function TeacherAssignmentsPage() {
               >
                 <HiOutlineClipboardList className="h-5 w-5" /> Submissions
               </button>
-              <button onClick={() => handleDelete(a.id)} className="rounded-lg p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30">
+              <button onClick={() => handleDelete(a.id, a.title)} className="rounded-lg p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30">
                 <HiOutlineTrash className="h-5 w-5" />
               </button>
             </div>

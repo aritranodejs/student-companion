@@ -50,8 +50,17 @@ export default function AssignmentDetail({ assignment, userId, profile, onClose,
     return { path, name: file.name }
   }
 
+  const hasExistingFile = !!submission?.file_url
+  const canTurnIn = !!file || hasExistingFile
+
   const handleSubmitWork = async () => {
     if (!isStudent) return
+
+    if (!canTurnIn) {
+      notify.error('Please attach a file before turning in your assignment')
+      return
+    }
+
     setUploading(true)
     try {
       let fileUrl = submission?.file_url
@@ -64,7 +73,7 @@ export default function AssignmentDetail({ assignment, userId, profile, onClose,
       const payload = {
         assignment_id: assignment.id,
         student_id: userId,
-        status: file || submission?.file_url ? 'completed' : 'in_progress',
+        status: 'completed',
         student_comment: studentNote || null,
         file_url: fileUrl || null,
         file_name: fileName || null,
@@ -126,9 +135,10 @@ export default function AssignmentDetail({ assignment, userId, profile, onClose,
                 <HiOutlinePaperClip /> {submission.file_name || 'View submitted file'}
               </button>
             )}
-            <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="mb-3 block w-full text-sm" accept=".pdf,.doc,.docx,.ppt,.pptx,.zip,.jpg,.jpeg,.png" />
+            <input type="file" required={!submission?.file_url} onChange={(e) => setFile(e.target.files?.[0] || null)} className="mb-3 block w-full text-sm" accept=".pdf,.doc,.docx,.ppt,.pptx,.zip,.jpg,.jpeg,.png" />
+            <p className="mb-3 text-xs text-slate-500">File upload is required to turn in this assignment.</p>
             <textarea value={studentNote} onChange={(e) => setStudentNote(e.target.value)} className="input-field mb-3" rows={2} placeholder="Add a note for your teacher (optional)" />
-            <button onClick={handleSubmitWork} disabled={uploading} className="btn-primary w-full disabled:opacity-50">
+            <button onClick={handleSubmitWork} disabled={uploading || !canTurnIn} className="btn-primary w-full disabled:opacity-50">
               {uploading ? 'Uploading...' : submission?.submitted_at ? 'Update Submission' : 'Turn In Assignment'}
             </button>
             {submission?.submitted_at && (

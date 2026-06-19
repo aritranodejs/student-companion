@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { supabase } from '../lib/supabase'
 import { notify } from '../lib/notify.jsx'
+import { isCampusConfigured, studentMatchesClassCourse, teacherCanEditStudent } from '../lib/institutionRules'
 
 const CLASS_SELECT = `
   *,
@@ -141,12 +142,64 @@ export const useInstitutionStore = create((set, get) => ({
     return data || []
   },
 
-  updateUserRole: async (userId, role) => {
+  updateUserRole: async (userId, role, actorId) => {
+    const target = get().allUsers.find((u) => u.id === userId)
+    if (target?.role === 'admin' && userId === actorId && role !== 'admin') {
+      return { error: { message: 'You cannot change your own admin role.' } }
+    }
     const { data, error } = await supabase.from('profiles').update({ role }).eq('id', userId).select().single()
     if (error) return { error }
     set({ allUsers: get().allUsers.map((u) => (u.id === userId ? data : u)) })
     notify.success(`User role updated to ${role}`)
     return { data }
+  },
+
+  updateUserProfile: async (userId, payload, actor) => {
+    const target = get().allUsers.find((u) => u.id === userId)
+    if (!target) return { error: { message: 'User not found' } }
+
+    if (actor.role === 'teacher' && !teacherCanEditStudent(actor, target, get().courses)) {
+      return { error: { message: 'You can only edit students in your department' } }
+    }
+
+    if (payload.role && target.role === 'admin' && userId === actor.id && payload.role !== 'admin') {
+      return { error: { message: 'You cannot change your own admin role.' } }
+    }
+
+    const updates = { ...payload }
+    if (updates.course_id) {
+      const course = get().courses.find((c) => c.id === updates.course_id)
+      if (course) updates.department_id = course.department_id
+    }
+    if (target.role === 'admin' && userId === actor.id) {
+      delete updates.role
+    }
+    if (updates.role === 'student' && !updates.course_id && payload.course_id === '') {
+      updates.course_id = null
+    }
+
+    const { data, error } = await supabase.from('profiles').update(updates).eq('id', userId).select().single()
+    if (error) return { error }
+    set({ allUsers: get().allUsers.map((u) => (u.id === userId ? data : u)) })
+    notify.success('User updated')
+    return { data }
+  },
+
+  fetchTeacherDeptStudents: async (teacherId) => {
+    const { data: teacher } = await supabase.from('profiles').select('*').eq('id', teacherId).single()
+    if (!teacher?.department_id) return []
+
+    const { data: deptCourses } = await supabase.from('courses').select('id').eq('department_id', teacher.department_id)
+    const courseIds = (deptCourses || []).map((c) => c.id)
+
+    let query = supabase.from('profiles').select('*').eq('role', 'student')
+    if (courseIds.length) {
+      query = query.or(`department_id.eq.${teacher.department_id},course_id.in.(${courseIds.join(',')})`)
+    } else {
+      query = query.eq('department_id', teacher.department_id)
+    }
+    const { data } = await query.order('name')
+    return data || []
   },
 
   createClass: async (payload) => {
@@ -185,13 +238,17 @@ export const useInstitutionStore = create((set, get) => ({
   },
 
   enrollStudent: async (classId, studentId) => {
+    const cls = get().classes.find((c) => c.id === classId)
+    const student = get().allUsers.find((u) => u.id === studentId)
+    const check = studentMatchesClassCourse(student, cls)
+    if (!check.ok) return { error: { message: check.reason } }
+
     const { data, error } = await supabase
       .from('class_enrollments')
       .insert({ class_id: classId, student_id: studentId })
       .select('*')
       .single()
     if (error) return { error }
-    const student = get().allUsers.find((u) => u.id === studentId)
     const row = { ...data, student }
     set({ enrollments: [...get().enrollments, row] })
     notify.success('Student enrolled in class')
@@ -228,10 +285,25 @@ export const useInstitutionStore = create((set, get) => ({
     return { data }
   },
 
-  saveFaceDescriptor: async (userId, descriptor) => {
+  saveFaceDescriptor: async (userId, descriptor, faceImageBlob = null) => {
+    let face_image_url = null
+    if (faceImageBlob) {
+      const path = `${userId}/face.jpg`
+      const { error: uploadError } = await supabase.storage
+        .from('face-images')
+        .upload(path, faceImageBlob, { upsert: true, contentType: 'image/jpeg' })
+      if (uploadError) return { error: uploadError }
+      const { data: urlData } = supabase.storage.from('face-images').getPublicUrl(path)
+      face_image_url = urlData.publicUrl
+    }
+
     const { data, error } = await supabase
       .from('profiles')
-      .update({ face_descriptor: descriptor, face_registered_at: new Date().toISOString() })
+      .update({
+        face_descriptor: descriptor,
+        face_registered_at: new Date().toISOString(),
+        ...(face_image_url ? { face_image_url } : {}),
+      })
       .eq('id', userId)
       .select()
       .single()
@@ -287,14 +359,22 @@ export const useInstitutionStore = create((set, get) => ({
   openAttendanceSession: async (classId, teacherId, options = {}) => {
     const today = new Date().toISOString().split('T')[0]
     const cls = get().classes.find((c) => c.id === classId)
+    const campusLat = options.campus_lat ?? cls?.campus_lat ?? null
+    const campusLng = options.campus_lng ?? cls?.campus_lng ?? null
+    const hasCampus = isCampusConfigured(campusLat, campusLng)
+
+    if (!hasCampus) {
+      return { error: { message: 'Set and save campus latitude & longitude before opening attendance.' } }
+    }
+
     const payload = {
       class_id: classId,
       session_date: today,
       created_by: teacherId,
       require_face: options.require_face ?? true,
-      require_location: options.require_location ?? true,
-      campus_lat: options.campus_lat ?? cls?.campus_lat ?? null,
-      campus_lng: options.campus_lng ?? cls?.campus_lng ?? null,
+      require_location: true,
+      campus_lat: Number(campusLat),
+      campus_lng: Number(campusLng),
       campus_radius_m: options.campus_radius_m ?? cls?.campus_radius_m ?? 150,
       is_open: true,
     }

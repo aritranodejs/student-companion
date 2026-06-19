@@ -5,6 +5,7 @@ import { useInstitutionStore } from '../../stores/institution'
 import { supabase } from '../../lib/supabase'
 import Modal from '../../components/ui/Modal'
 import { notify } from '../../lib/notify.jsx'
+import { useConfirm } from '../../components/ui/ConfirmProvider'
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi'
 
 export default function TeacherExamsPage() {
@@ -13,6 +14,7 @@ export default function TeacherExamsPage() {
   const [exams, setExams] = useState([])
   const [modalOpen, setModalOpen] = useState(false)
   const form = useForm()
+  const confirm = useConfirm()
 
   useEffect(() => {
     if (user?.id) { fetchTeacherClasses(user.id); loadExams() }
@@ -27,6 +29,22 @@ export default function TeacherExamsPage() {
     const { error } = await createClassExam({ ...data, class_id: data.class_id }, user.id)
     if (error) notify.error(error.message)
     else { setModalOpen(false); form.reset(); loadExams() }
+  }
+
+  const handleDelete = async (exam) => {
+    const ok = await confirm({
+      title: 'Delete Exam',
+      message: `Remove "${exam.exam_name}" scheduled for ${exam.exam_date}? Students will no longer see this exam.`,
+      confirmLabel: 'Delete',
+      variant: 'error',
+    })
+    if (!ok) return
+    const { error } = await supabase.from('exams').delete().eq('id', exam.id)
+    if (error) notify.error(error.message)
+    else {
+      notify.success('Exam deleted')
+      loadExams()
+    }
   }
 
   return (
@@ -48,7 +66,7 @@ export default function TeacherExamsPage() {
                 <p className="text-sm text-slate-500">{e.class?.name}</p>
                 <p className="mt-2 text-indigo-600">{e.exam_date}</p>
               </div>
-              <button onClick={async () => { await supabase.from('exams').delete().eq('id', e.id); loadExams() }} className="text-red-400"><HiOutlineTrash /></button>
+              <button type="button" onClick={() => handleDelete(e)} className="text-red-400 hover:text-red-600"><HiOutlineTrash /></button>
             </div>
           </div>
         ))}

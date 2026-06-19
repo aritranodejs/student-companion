@@ -6,6 +6,7 @@ import useAppData from './hooks/useAppData'
 import AppLayout from './components/layout/AppLayout'
 import ProtectedRoute from './components/layout/ProtectedRoute'
 import RoleRoute from './components/layout/RoleRoute'
+import { ConfirmProvider } from './components/ui/ConfirmProvider'
 import { ROLES } from './constants/roles'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
@@ -30,6 +31,7 @@ import TeacherAssignmentsPage from './pages/teacher/TeacherAssignmentsPage'
 import TeacherAttendancePage from './pages/teacher/TeacherAttendancePage'
 import TeacherExamsPage from './pages/teacher/TeacherExamsPage'
 import TeacherGradesPage from './pages/teacher/TeacherGradesPage'
+import TeacherStudentsPage from './pages/teacher/TeacherStudentsPage'
 
 function AppRoutes() {
   useAppData()
@@ -56,6 +58,7 @@ function AppRoutes() {
                 {/* Teacher routes */}
                 <Route path="/teacher" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherDashboard /></RoleRoute>} />
                 <Route path="/teacher/classes" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherDashboard /></RoleRoute>} />
+                <Route path="/teacher/students" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherStudentsPage /></RoleRoute>} />
                 <Route path="/teacher/assignments" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherAssignmentsPage /></RoleRoute>} />
                 <Route path="/teacher/grades" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherGradesPage /></RoleRoute>} />
                 <Route path="/teacher/attendance" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherAttendancePage /></RoleRoute>} />
@@ -92,8 +95,10 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <AppRoutes />
-      <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
+      <ConfirmProvider>
+        <AppRoutes />
+        <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
+      </ConfirmProvider>
     </BrowserRouter>
   )
 }
