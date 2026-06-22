@@ -53,8 +53,41 @@ SET search_path = public
 AS $$
 DECLARE
   v_teacher_dept UUID;
+  v_handoff_token UUID;
 BEGIN
   IF public.is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    v_handoff_token := NULLIF(current_setting('app.handoff_face_reg', true), '')::uuid;
+  EXCEPTION
+    WHEN OTHERS THEN
+      v_handoff_token := NULL;
+  END;
+
+  IF v_handoff_token IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM public.face_registration_handoff_tokens t
+      WHERE t.id = v_handoff_token
+        AND t.student_id = OLD.id
+        AND t.status = 'pending'
+        AND t.expires_at > NOW()
+    ) THEN
+      RAISE EXCEPTION 'Invalid or expired face registration handoff.';
+    END IF;
+
+    IF NEW.role IS DISTINCT FROM OLD.role
+      OR NEW.course_id IS DISTINCT FROM OLD.course_id
+      OR NEW.department_id IS DISTINCT FROM OLD.department_id
+      OR NEW.roll_number IS DISTINCT FROM OLD.roll_number
+      OR NEW.email IS DISTINCT FROM OLD.email
+      OR NEW.name IS DISTINCT FROM OLD.name
+    THEN
+      RAISE EXCEPTION 'Handoff may only update face registration fields.';
+    END IF;
+
     RETURN NEW;
   END IF;
 
@@ -146,6 +179,10 @@ CREATE POLICY "Admin update all profiles" ON public.profiles
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 DROP POLICY IF EXISTS "Teachers manage class assignments" ON public.assignments;
+DROP POLICY IF EXISTS "Teachers select class assignments" ON public.assignments;
+DROP POLICY IF EXISTS "Teachers insert class assignments" ON public.assignments;
+DROP POLICY IF EXISTS "Teachers update class assignments" ON public.assignments;
+DROP POLICY IF EXISTS "Teachers delete class assignments" ON public.assignments;
 
 CREATE POLICY "Teachers select class assignments" ON public.assignments
   FOR SELECT USING (
@@ -176,6 +213,10 @@ CREATE POLICY "Teachers delete class assignments" ON public.assignments
   );
 
 DROP POLICY IF EXISTS "Teachers manage class exams" ON public.exams;
+DROP POLICY IF EXISTS "Teachers select class exams" ON public.exams;
+DROP POLICY IF EXISTS "Teachers insert class exams" ON public.exams;
+DROP POLICY IF EXISTS "Teachers update class exams" ON public.exams;
+DROP POLICY IF EXISTS "Teachers delete class exams" ON public.exams;
 
 CREATE POLICY "Teachers select class exams" ON public.exams
   FOR SELECT USING (

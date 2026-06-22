@@ -57,6 +57,7 @@ Open **Supabase → SQL Editor** and run each file **in this exact order**:
 | 11 | `supabase/schema-attendance-handoff.sql` | **QR mobile attendance (PC without camera)** |
 | 12 | `supabase/schema-face-registration-handoff.sql` | **QR face registration from phone** |
 | 13 | `supabase/schema-handoff-anonymous.sql` | **QR handoff without phone login (required)** |
+| 14 | `supabase/fix-handoff-profile-trigger.sql` | **Fix "Not authorized to update profile" on phone QR** |
 
 If signup fails, also run `supabase/fix-signup-trigger.sql`.
 
