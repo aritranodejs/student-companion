@@ -13,6 +13,7 @@ import { getCampusCoords, isCampusConfigured, canMarkAttendanceSession } from '.
 import { calcAttendancePercent, getAttendanceColor } from '../utils/helpers'
 import FaceCapture from '../components/attendance/FaceCapture'
 import AttendanceQRHandoff from '../components/attendance/AttendanceQRHandoff'
+import FaceRegisterQRHandoff from '../components/attendance/FaceRegisterQRHandoff'
 import Modal from '../components/ui/Modal'
 import AlertModal from '../components/ui/AlertModal'
 import { notify } from '../lib/notify.jsx'
@@ -31,10 +32,12 @@ export default function AttendancePage() {
   const {
     attendanceSessions, attendanceLogs,
     fetchStudentTodaySessions, fetchStudentAttendanceLogs,
-    markDailyAttendance, saveFaceDescriptor, createAttendanceHandoff,
+    markDailyAttendance, saveFaceDescriptor, createAttendanceHandoff, createFaceRegistrationHandoff,
   } = useInstitutionStore()
 
   const [faceModal, setFaceModal] = useState(false)
+  const [faceRegMode, setFaceRegMode] = useState('camera')
+  const [faceHandoffTokenId, setFaceHandoffTokenId] = useState(null)
   const [markModal, setMarkModal] = useState(null)
   const [markMode, setMarkMode] = useState('camera')
   const [handoffTokenId, setHandoffTokenId] = useState(null)
@@ -160,6 +163,32 @@ export default function AttendancePage() {
     await refreshAfterMark(markModal)
   }, [markModal, user?.id])
 
+  const openFaceModal = async () => {
+    setFaceRegMode('camera')
+    setFaceHandoffTokenId(null)
+    setCheckingCamera(true)
+    const cam = await hasCamera()
+    setCameraAvailable(cam)
+    setCheckingCamera(false)
+    setFaceModal(true)
+    if (!cam) {
+      const { data, error } = await createFaceRegistrationHandoff(user.id)
+      if (error) notify.error(error.message)
+      else {
+        setFaceHandoffTokenId(data.id)
+        setFaceRegMode('phone')
+      }
+    }
+  }
+
+  const onFaceHandoffCompleted = useCallback(async () => {
+    await fetchProfile(user.id)
+    setFaceModal(false)
+    setFaceHandoffTokenId(null)
+    setFaceRegMode('camera')
+    setSuccessModal({ title: 'Face Registered', message: 'Your attendance face was saved from your phone. You can now mark attendance.' })
+  }, [user?.id, fetchProfile])
+
   const hasFace = !!profile?.face_descriptor
 
   return (
@@ -176,7 +205,9 @@ export default function AttendancePage() {
             <div className="flex-1">
               <h3 className="font-semibold text-slate-900 dark:text-white">Register your face</h3>
               <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Use a phone or laptop with a camera once. After that you can mark attendance via QR on a PC without a camera.</p>
-              <button type="button" onClick={() => setFaceModal(true)} className="btn-primary mt-3">Register Face</button>
+              <button type="button" onClick={openFaceModal} disabled={checkingCamera} className="btn-primary mt-3">
+                {checkingCamera ? 'Checking device…' : 'Register Face'}
+              </button>
             </div>
           </div>
         </div>
@@ -273,8 +304,53 @@ export default function AttendancePage() {
         </div>
       )}
 
-      <Modal isOpen={faceModal} onClose={() => setFaceModal(false)} title="Register Your Face" size="lg">
-        <FaceCapture mode="register" label="Save Face Profile" onCapture={handleRegisterFace} />
+      <Modal
+        isOpen={faceModal}
+        onClose={() => { setFaceModal(false); setFaceHandoffTokenId(null); setFaceRegMode('camera') }}
+        title="Register Your Face"
+        size="lg"
+      >
+        {!cameraAvailable && faceRegMode === 'phone' && faceHandoffTokenId ? (
+          <FaceRegisterQRHandoff
+            tokenId={faceHandoffTokenId}
+            onCompleted={onFaceHandoffCompleted}
+            onExpired={() => notify.warning('QR expired — open Register Face again')}
+          />
+        ) : (
+          <>
+            <FaceCapture mode="register" label="Save Face Profile" onCapture={handleRegisterFace} />
+            <button
+              type="button"
+              onClick={async () => {
+                const { data, error } = await createFaceRegistrationHandoff(user.id)
+                if (error) notify.error(error.message)
+                else {
+                  setFaceHandoffTokenId(data.id)
+                  setFaceRegMode('phone')
+                }
+              }}
+              className="btn-secondary mt-4 w-full text-sm"
+            >
+              <HiOutlineDeviceMobile className="h-5 w-5" /> Register using phone (scan QR)
+            </button>
+          </>
+        )}
+        {cameraAvailable && faceRegMode === 'phone' && faceHandoffTokenId && (
+          <>
+            <FaceRegisterQRHandoff
+              tokenId={faceHandoffTokenId}
+              onCompleted={onFaceHandoffCompleted}
+              onExpired={() => notify.warning('QR expired — generate a new one')}
+            />
+            <button
+              type="button"
+              onClick={() => { setFaceRegMode('camera'); setFaceHandoffTokenId(null) }}
+              className="btn-secondary mt-4 w-full text-sm"
+            >
+              <HiOutlineCamera className="h-5 w-5" /> Use this device camera
+            </button>
+          </>
+        )}
       </Modal>
 
       <Modal

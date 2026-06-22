@@ -433,6 +433,34 @@ export const useInstitutionStore = create((set, get) => ({
     return { error }
   },
 
+  createFaceRegistrationHandoff: async (studentId) => {
+    await supabase
+      .from('face_registration_handoff_tokens')
+      .update({ status: 'cancelled' })
+      .eq('student_id', studentId)
+      .eq('status', 'pending')
+
+    const expires_at = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    const { data, error } = await supabase
+      .from('face_registration_handoff_tokens')
+      .insert({ student_id: studentId, expires_at })
+      .select()
+      .single()
+    return { data, error }
+  },
+
+  completeFaceRegistrationHandoff: async (tokenId) => {
+    const { error } = await supabase
+      .from('face_registration_handoff_tokens')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', tokenId)
+      .eq('status', 'pending')
+    return { error }
+  },
+
   openAttendanceSession: async (classId, teacherId, options = {}) => {
     const today = new Date().toISOString().split('T')[0]
     const cls = get().classes.find((c) => c.id === classId)

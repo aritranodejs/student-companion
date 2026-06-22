@@ -55,6 +55,7 @@ Open **Supabase → SQL Editor** and run each file **in this exact order**:
 | 9 | `supabase/fix-face-images.sql` | Face snapshot storage |
 | 10 | `supabase/fix-production-rls.sql` | **Production hardening (required)** |
 | 11 | `supabase/schema-attendance-handoff.sql` | **QR mobile attendance (PC without camera)** |
+| 12 | `supabase/schema-face-registration-handoff.sql` | **QR face registration from phone** |
 
 If signup fails, also run `supabase/fix-signup-trigger.sql`.
 
