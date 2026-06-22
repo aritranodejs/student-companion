@@ -1,5 +1,6 @@
 -- Mobile QR handoff for face registration (PC without camera → register on phone)
 -- Run AFTER schema-attendance-handoff.sql
+-- THEN also run schema-handoff-anonymous.sql (required for phone QR without login)
 
 CREATE TABLE IF NOT EXISTS public.face_registration_handoff_tokens (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

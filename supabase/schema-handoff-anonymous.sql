@@ -345,3 +345,6 @@ GRANT EXECUTE ON FUNCTION public.get_face_registration_handoff(UUID) TO anon, au
 GRANT EXECUTE ON FUNCTION public.complete_face_registration_handoff(UUID, JSONB) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.get_attendance_handoff(UUID) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.complete_attendance_handoff(UUID, DOUBLE PRECISION, DOUBLE PRECISION, BOOLEAN, DOUBLE PRECISION, TEXT) TO anon, authenticated;
+
+-- Force PostgREST / Supabase API to pick up new RPC functions immediately
+NOTIFY pgrst, 'reload schema';
