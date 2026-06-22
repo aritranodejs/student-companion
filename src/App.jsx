@@ -32,6 +32,7 @@ import TeacherAttendancePage from './pages/teacher/TeacherAttendancePage'
 import TeacherExamsPage from './pages/teacher/TeacherExamsPage'
 import TeacherGradesPage from './pages/teacher/TeacherGradesPage'
 import TeacherStudentsPage from './pages/teacher/TeacherStudentsPage'
+import AttendanceMobilePage from './pages/AttendanceMobilePage'
 
 function AppRoutes() {
   useAppData()
@@ -41,6 +42,16 @@ function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route
+        path="/attendance/mobile/:token"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowedRoles={[ROLES.STUDENT]}>
+              <AttendanceMobilePage />
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/*"
         element={

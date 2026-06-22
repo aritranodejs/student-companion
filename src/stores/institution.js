@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { supabase } from '../lib/supabase'
 import { notify } from '../lib/notify.jsx'
-import { isCampusConfigured, studentMatchesClassCourse, teacherCanEditStudent } from '../lib/institutionRules'
+import { isCampusConfigured, studentMatchesClassCourse, teacherCanEditStudent, teacherMatchesClassCourse, validateTeacherStudentPayload } from '../lib/institutionRules'
 
 const CLASS_SELECT = `
   *,
@@ -21,6 +21,24 @@ export const useInstitutionStore = create((set, get) => ({
   attendanceSessions: [],
   attendanceLogs: [],
   loading: false,
+
+  fetchTeacherReferenceData: async (teacherId) => {
+    set({ loading: true })
+    try {
+      const [departments, courses, classes] = await Promise.all([
+        supabase.from('departments').select('*').order('name'),
+        supabase.from('courses').select('*, department:departments(id, name, code)').order('name'),
+        supabase.from('classes').select(CLASS_SELECT).eq('teacher_id', teacherId).order('name'),
+      ])
+      set({
+        departments: departments.data || [],
+        courses: courses.data || [],
+        classes: classes.data || [],
+      })
+    } finally {
+      set({ loading: false })
+    }
+  },
 
   fetchAdminData: async () => {
     set({ loading: true })
@@ -155,11 +173,22 @@ export const useInstitutionStore = create((set, get) => ({
   },
 
   updateUserProfile: async (userId, payload, actor) => {
-    const target = get().allUsers.find((u) => u.id === userId)
+    let target = get().allUsers.find((u) => u.id === userId)
+    if (!target) {
+      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
+      target = data
+    }
     if (!target) return { error: { message: 'User not found' } }
 
     if (actor.role === 'teacher' && !teacherCanEditStudent(actor, target, get().courses)) {
       return { error: { message: 'You can only edit students in your department' } }
+    }
+
+    const payloadCheck = validateTeacherStudentPayload(actor, payload, get().courses)
+    if (!payloadCheck.ok) return { error: { message: payloadCheck.reason } }
+
+    if (actor.role === 'teacher') {
+      delete payload.role
     }
 
     if (payload.role && target.role === 'admin' && userId === actor.id && payload.role !== 'admin') {
@@ -203,6 +232,11 @@ export const useInstitutionStore = create((set, get) => ({
   },
 
   createClass: async (payload) => {
+    if (payload.teacher_id && payload.course_id) {
+      const teacher = get().allUsers.find((u) => u.id === payload.teacher_id)
+      const check = teacherMatchesClassCourse(teacher, payload.course_id, get().courses)
+      if (!check.ok) return { error: { message: check.reason } }
+    }
     const { data, error } = await supabase
       .from('classes')
       .insert(payload)
@@ -216,6 +250,14 @@ export const useInstitutionStore = create((set, get) => ({
   },
 
   updateClass: async (id, payload) => {
+    const existing = get().classes.find((c) => c.id === id)
+    const teacherId = payload.teacher_id ?? existing?.teacher_id
+    const courseId = payload.course_id ?? existing?.course_id
+    if (teacherId && courseId) {
+      const teacher = get().allUsers.find((u) => u.id === teacherId)
+      const check = teacherMatchesClassCourse(teacher, courseId, get().courses)
+      if (!check.ok) return { error: { message: check.reason } }
+    }
     const { data, error } = await supabase
       .from('classes')
       .update(payload)
@@ -344,7 +386,7 @@ export const useInstitutionStore = create((set, get) => ({
     return data || []
   },
 
-  markDailyAttendance: async (payload, studentId) => {
+  markDailyAttendance: async (payload, studentId, options = {}) => {
     const { data, error } = await supabase
       .from('attendance_logs')
       .insert({ ...payload, student_id: studentId, marked_by: studentId })
@@ -352,8 +394,43 @@ export const useInstitutionStore = create((set, get) => ({
       .single()
     if (error) return { error }
     set({ attendanceLogs: [data, ...get().attendanceLogs] })
-    notify.attendance('Attendance marked successfully')
+    if (!options.silent) notify.attendance('Attendance marked successfully')
     return { data }
+  },
+
+  createAttendanceHandoff: async (sessionId, classId, studentId) => {
+    await supabase
+      .from('attendance_handoff_tokens')
+      .update({ status: 'cancelled' })
+      .eq('student_id', studentId)
+      .eq('session_id', sessionId)
+      .eq('status', 'pending')
+
+    const expires_at = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    const { data, error } = await supabase
+      .from('attendance_handoff_tokens')
+      .insert({
+        student_id: studentId,
+        session_id: sessionId,
+        class_id: classId,
+        expires_at,
+      })
+      .select()
+      .single()
+    return { data, error }
+  },
+
+  completeAttendanceHandoff: async (tokenId, logId) => {
+    const { error } = await supabase
+      .from('attendance_handoff_tokens')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        attendance_log_id: logId,
+      })
+      .eq('id', tokenId)
+      .eq('status', 'pending')
+    return { error }
   },
 
   openAttendanceSession: async (classId, teacherId, options = {}) => {

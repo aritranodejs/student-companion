@@ -1,13 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { HiOutlineLocationMarker, HiOutlineCamera, HiOutlineCheckCircle, HiOutlineClock, HiOutlineExclamation } from 'react-icons/hi'
+import {
+  HiOutlineLocationMarker, HiOutlineCamera, HiOutlineCheckCircle,
+  HiOutlineClock, HiOutlineExclamation, HiOutlineDeviceMobile,
+} from 'react-icons/hi'
 import { useAuthStore } from '../stores'
 import { useInstitutionStore } from '../stores/institution'
-import { compareDescriptors } from '../lib/faceRecognition'
-import { getCurrentCoords, isWithinCampus } from '../lib/geo'
+import { getCurrentCoords } from '../lib/geo'
+import { hasCamera } from '../lib/camera'
+import { buildAttendancePayload } from '../lib/attendanceMark'
 import { getCampusCoords, isCampusConfigured, canMarkAttendanceSession } from '../lib/institutionRules'
 import { calcAttendancePercent, getAttendanceColor } from '../utils/helpers'
 import FaceCapture from '../components/attendance/FaceCapture'
+import AttendanceQRHandoff from '../components/attendance/AttendanceQRHandoff'
 import Modal from '../components/ui/Modal'
 import AlertModal from '../components/ui/AlertModal'
 import { notify } from '../lib/notify.jsx'
@@ -26,11 +31,15 @@ export default function AttendancePage() {
   const {
     attendanceSessions, attendanceLogs,
     fetchStudentTodaySessions, fetchStudentAttendanceLogs,
-    markDailyAttendance, saveFaceDescriptor,
+    markDailyAttendance, saveFaceDescriptor, createAttendanceHandoff,
   } = useInstitutionStore()
 
   const [faceModal, setFaceModal] = useState(false)
   const [markModal, setMarkModal] = useState(null)
+  const [markMode, setMarkMode] = useState('camera')
+  const [handoffTokenId, setHandoffTokenId] = useState(null)
+  const [cameraAvailable, setCameraAvailable] = useState(true)
+  const [checkingCamera, setCheckingCamera] = useState(false)
   const [marking, setMarking] = useState(false)
   const [locLoading, setLocLoading] = useState(false)
   const [pendingCoords, setPendingCoords] = useState(null)
@@ -63,95 +72,39 @@ export default function AttendancePage() {
     }
   }
 
+  const refreshAfterMark = async (session) => {
+    setMarkModal(null)
+    setPendingCoords(null)
+    setHandoffTokenId(null)
+    setMarkMode('camera')
+    setSuccessModal({
+      title: 'Attendance Marked',
+      message: `${session.class?.name} — attendance recorded successfully.`,
+    })
+    await loadClassSummary()
+    await fetchStudentTodaySessions(user.id)
+    await fetchStudentAttendanceLogs(user.id)
+  }
+
   const handleMarkAttendance = async (session, liveDescriptor) => {
     setMarking(true)
     try {
-      const sessionClass = session.class
-      const precheck = canMarkAttendanceSession(session, sessionClass, !!profile?.face_descriptor)
-      if (!precheck.ok) {
-        notify.error(precheck.reason)
-        return
-      }
-
-      let faceVerified = false
-      let faceScore = null
-      let locationVerified = false
-      let latitude = null
-      let longitude = null
-
-      if (session.require_face) {
-        if (!profile?.face_descriptor) {
-          notify.error('Register your face first')
-          setFaceModal(true)
-          return
-        }
-        if (!liveDescriptor) {
-          notify.error('Face verification required')
-          return
-        }
-        const { match, score } = await compareDescriptors(profile.face_descriptor, liveDescriptor)
-        faceVerified = match
-        faceScore = score
-        if (!match) {
-          notify.error('Face verification failed. Try again in better lighting.')
-          return
-        }
-      }
-
-      if (session.require_location) {
-        const { lat, lng, radius } = getCampusCoords(session, sessionClass)
-        if (!isCampusConfigured(lat, lng)) {
-          notify.error('Campus location is not set by your teacher. Attendance cannot be marked yet.')
-          return
-        }
-        if (!pendingCoords) {
-          notify.error('GPS location was not captured. Close and tap Mark Present again.')
-          return
-        }
-        latitude = pendingCoords.latitude
-        longitude = pendingCoords.longitude
-        locationVerified = isWithinCampus(latitude, longitude, lat, lng, radius)
-        if (!locationVerified) {
-          notify.error(`You must be on campus (within ${radius}m) to mark attendance`)
-          return
-        }
-      }
-
       const already = attendanceLogs.find((l) => l.session_id === session.id)
-      if (already) {
-        notify.info('You already marked attendance for this class today')
+      const result = await buildAttendancePayload({
+        session,
+        profile,
+        liveDescriptor,
+        coords: pendingCoords,
+        method: 'face',
+        existingLog: already,
+      })
+      if (result.error) {
+        notify.error(result.error.message)
         return
       }
-
-      let method = 'student_app'
-      if (faceVerified && locationVerified) method = 'face'
-      else if (faceVerified) method = 'face'
-      else if (locationVerified) method = 'location'
-
-      const { error } = await markDailyAttendance({
-        session_id: session.id,
-        class_id: session.class_id,
-        status: 'present',
-        method,
-        latitude,
-        longitude,
-        face_match_score: faceScore,
-        face_verified: faceVerified,
-        location_verified: locationVerified,
-      }, user.id)
-
+      const { error } = await markDailyAttendance(result.payload, user.id)
       if (error) notify.error(error.message)
-      else {
-        setMarkModal(null)
-        setPendingCoords(null)
-        setSuccessModal({
-          title: 'Attendance Marked',
-          message: `${session.class?.name} — ${faceVerified ? 'Face verified' : ''}${faceVerified && locationVerified ? ' · ' : ''}${locationVerified ? 'GPS verified' : ''}`,
-        })
-        await loadClassSummary()
-        await fetchStudentTodaySessions(user.id)
-        await fetchStudentAttendanceLogs(user.id)
-      }
+      else await refreshAfterMark(session)
     } catch (err) {
       notify.error(err.message || 'Could not mark attendance')
     } finally {
@@ -159,22 +112,53 @@ export default function AttendancePage() {
     }
   }
 
+  const startPhoneHandoff = async (session) => {
+    const { data, error } = await createAttendanceHandoff(session.id, session.class_id, user.id)
+    if (error) {
+      notify.error(error.message)
+      return
+    }
+    setHandoffTokenId(data.id)
+    setMarkMode('phone')
+  }
+
   const openMarkModal = async (session) => {
     setPendingCoords(null)
+    setHandoffTokenId(null)
+    setMarkMode('camera')
+    setCheckingCamera(true)
+    const cam = await hasCamera()
+    setCameraAvailable(cam)
+    setCheckingCamera(false)
+
     if (session.require_location) {
       setLocLoading(true)
       try {
         const coords = await getCurrentCoords()
         setPendingCoords(coords)
       } catch (err) {
-        notify.error(err.message || 'Could not get your location')
-        return
+        if (cam) {
+          notify.error(err.message || 'Could not get your location')
+          return
+        }
+        // PC without camera: GPS will be captured on phone
       } finally {
         setLocLoading(false)
       }
     }
+
     setMarkModal(session)
+
+    if (!cam) {
+      await startPhoneHandoff(session)
+    }
   }
+
+  const onHandoffCompleted = useCallback(async () => {
+    if (!markModal) return
+    notify.success('Attendance marked from your phone!')
+    await refreshAfterMark(markModal)
+  }, [markModal, user?.id])
 
   const hasFace = !!profile?.face_descriptor
 
@@ -182,7 +166,7 @@ export default function AttendancePage() {
     <div className="space-y-6">
       <div>
         <h1 className="page-title">Mark Attendance</h1>
-        <p className="page-subtitle">Premium face mapping + GPS verification for enrolled classes</p>
+        <p className="page-subtitle">Face + GPS verification — use your phone via QR if this PC has no camera</p>
       </div>
 
       {!hasFace && (
@@ -191,8 +175,8 @@ export default function AttendancePage() {
             <HiOutlineCamera className="mt-0.5 h-6 w-6 text-amber-600" />
             <div className="flex-1">
               <h3 className="font-semibold text-slate-900 dark:text-white">Register your face</h3>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">One-time setup with live face mapping — required before marking daily attendance.</p>
-              <button onClick={() => setFaceModal(true)} className="btn-primary mt-3">Register Face</button>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Use a phone or laptop with a camera once. After that you can mark attendance via QR on a PC without a camera.</p>
+              <button type="button" onClick={() => setFaceModal(true)} className="btn-primary mt-3">Register Face</button>
             </div>
           </div>
         </div>
@@ -234,11 +218,12 @@ export default function AttendancePage() {
                       <span className="flex items-center gap-1 text-sm font-medium text-emerald-600"><HiOutlineCheckCircle /> Marked</span>
                     ) : (
                       <button
+                        type="button"
                         onClick={() => openMarkModal(session)}
-                        disabled={!check.ok || locLoading}
+                        disabled={!check.ok || locLoading || checkingCamera}
                         className="btn-primary py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {locLoading ? 'Getting GPS…' : 'Mark Present'}
+                        {locLoading || checkingCamera ? 'Preparing…' : 'Mark Present'}
                       </button>
                     )}
                   </div>
@@ -278,6 +263,7 @@ export default function AttendancePage() {
                 <span>{log.class?.name || 'Class'}</span>
                 <span className="text-xs text-slate-500">
                   {new Date(log.marked_at).toLocaleString()} · {log.status}
+                  {log.method === 'mobile' ? ' · 📱 phone' : ''}
                   {log.face_verified ? ' · ✓ face' : ''}
                   {log.location_verified ? ' · ✓ GPS' : ''}
                 </span>
@@ -291,26 +277,65 @@ export default function AttendancePage() {
         <FaceCapture mode="register" label="Save Face Profile" onCapture={handleRegisterFace} />
       </Modal>
 
-      <Modal isOpen={!!markModal} onClose={() => { if (!marking) { setMarkModal(null); setPendingCoords(null) } }} title={`Verify Attendance — ${markModal?.class?.name || ''}`} size="lg">
+      <Modal
+        isOpen={!!markModal}
+        onClose={() => { if (!marking) { setMarkModal(null); setPendingCoords(null); setHandoffTokenId(null); setMarkMode('camera') } }}
+        title={`Verify Attendance — ${markModal?.class?.name || ''}`}
+        size="lg"
+      >
         {markModal && !canMarkAttendanceSession(markModal, markModal.class, hasFace).ok ? (
           <p className="text-sm text-amber-600">{canMarkAttendanceSession(markModal, markModal.class, hasFace).reason}</p>
-        ) : markModal?.require_face ? (
+        ) : markModal?.require_face && (
           <>
-            {markModal.require_location && pendingCoords && (
-              <p className="mb-3 flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                <HiOutlineLocationMarker /> GPS captured — verify your face to complete
-              </p>
+            {!cameraAvailable && (
+              <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+                <HiOutlineDeviceMobile className="mb-1 inline h-5 w-5" /> No camera detected on this device. Scan the QR code with your phone to complete attendance.
+              </div>
             )}
-            <FaceCapture
-            mode="verify"
-            autoCapture
-            referenceDescriptor={profile?.face_descriptor}
-            label={marking ? 'Verifying…' : 'Verify Face & Mark Present'}
-            disabled={marking}
-            onCapture={(descriptor) => handleMarkAttendance(markModal, descriptor)}
-          />
+
+            {markMode === 'phone' && handoffTokenId ? (
+              <AttendanceQRHandoff
+                tokenId={handoffTokenId}
+                className={markModal.class?.name}
+                onCompleted={onHandoffCompleted}
+                onExpired={() => notify.warning('QR expired — generate a new one')}
+              />
+            ) : (
+              <>
+                {markModal.require_location && pendingCoords && (
+                  <p className="mb-3 flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                    <HiOutlineLocationMarker /> GPS captured — verify your face to complete
+                  </p>
+                )}
+                <FaceCapture
+                  mode="verify"
+                  autoCapture
+                  referenceDescriptor={profile?.face_descriptor}
+                  label={marking ? 'Verifying…' : 'Verify Face & Mark Present'}
+                  disabled={marking}
+                  onCapture={(descriptor) => handleMarkAttendance(markModal, descriptor)}
+                />
+                <button
+                  type="button"
+                  onClick={() => startPhoneHandoff(markModal)}
+                  className="btn-secondary mt-4 w-full text-sm"
+                >
+                  <HiOutlineDeviceMobile className="h-5 w-5" /> Use phone instead (scan QR)
+                </button>
+              </>
+            )}
+
+            {cameraAvailable && markMode === 'phone' && (
+              <button
+                type="button"
+                onClick={() => { setMarkMode('camera'); setHandoffTokenId(null) }}
+                className="btn-secondary mt-4 w-full text-sm"
+              >
+                <HiOutlineCamera className="h-5 w-5" /> Use this device camera
+              </button>
+            )}
           </>
-        ) : null}
+        )}
       </Modal>
 
       <AlertModal

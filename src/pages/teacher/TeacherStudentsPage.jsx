@@ -20,7 +20,7 @@ function userDeptCourse(u, departments, courses) {
 export default function TeacherStudentsPage() {
   const user = useAuthStore((s) => s.user)
   const profile = useAuthStore((s) => s.profile)
-  const { departments, courses, fetchAdminData, fetchTeacherDeptStudents, updateUserProfile } = useInstitutionStore()
+  const { departments, courses, fetchTeacherReferenceData, fetchTeacherDeptStudents, updateUserProfile } = useInstitutionStore()
   const [students, setStudents] = useState([])
   const [search, setSearch] = useState('')
   const [editUser, setEditUser] = useState(null)
@@ -33,7 +33,7 @@ export default function TeacherStudentsPage() {
 
   const load = async () => {
     setLoading(true)
-    await fetchAdminData()
+    await fetchTeacherReferenceData(user.id)
     const list = await fetchTeacherDeptStudents(user.id)
     setStudents(list)
     setLoading(false)
@@ -134,8 +134,9 @@ export default function TeacherStudentsPage() {
       {editUser && (
         <UserEditModal
           user={editUser}
-          departments={departments}
+          departments={departments.filter((d) => d.id === profile?.department_id)}
           courses={courses.filter((c) => c.department_id === profile?.department_id)}
+          lockDepartment
           canEditRole={false}
           onClose={() => setEditUser(null)}
           onSave={handleSave}

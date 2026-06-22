@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserAdd } from 'react-icons/hi'
+import { HiOutlinePlus, HiOutlineTrash, HiOutlineUserAdd, HiOutlinePencil } from 'react-icons/hi'
 import { useInstitutionStore } from '../../stores/institution'
 import Modal from '../../components/ui/Modal'
 import { notify } from '../../lib/notify.jsx'
-import { studentMatchesClassCourse } from '../../lib/institutionRules'
+import { studentMatchesClassCourse, teacherMatchesClassCourse } from '../../lib/institutionRules'
 import { useConfirm } from '../../components/ui/ConfirmProvider'
 
 function classPath(c) {
@@ -14,9 +14,19 @@ function classPath(c) {
   return c.department || 'No course assigned'
 }
 
+function teachersForCourse(teachers, courseId, courses) {
+  if (!courseId) return teachers
+  const course = courses.find((c) => c.id === courseId)
+  if (!course?.department_id) return teachers
+  return teachers.filter((t) => t.department_id === course.department_id)
+}
+
 export default function AdminClassesPage() {
-  const { classes, courses, allUsers, enrollments, loading, fetchAdminData, createClass, deleteClass, enrollStudent, unenrollStudent } = useInstitutionStore()
-  const [classModal, setClassModal] = useState(false)
+  const {
+    classes, courses, allUsers, enrollments, loading,
+    fetchAdminData, createClass, updateClass, deleteClass, enrollStudent, unenrollStudent,
+  } = useInstitutionStore()
+  const [classModal, setClassModal] = useState(null)
   const [enrollModal, setEnrollModal] = useState(null)
   const [filterCourse, setFilterCourse] = useState('all')
   const classForm = useForm()
@@ -24,27 +34,52 @@ export default function AdminClassesPage() {
   const teachers = allUsers.filter((u) => u.role === 'teacher')
   const students = allUsers.filter((u) => u.role === 'student')
 
+  const watchedCourseId = classForm.watch('course_id')
+  const eligibleTeachers = teachersForCourse(teachers, watchedCourseId, courses)
+
   useEffect(() => { fetchAdminData() }, [fetchAdminData])
 
   const filtered = filterCourse === 'all'
     ? classes
     : classes.filter((c) => c.course_id === filterCourse)
 
-  const handleCreateClass = async (data) => {
-    const { error } = await createClass({
+  const openCreate = () => {
+    classForm.reset({ name: '', code: '', course_id: courses[0]?.id || '', teacher_id: '' })
+    setClassModal({ mode: 'create' })
+  }
+
+  const openEdit = (cls) => {
+    classForm.reset({
+      name: cls.name,
+      code: cls.code,
+      course_id: cls.course_id || '',
+      teacher_id: cls.teacher_id || '',
+    })
+    setClassModal({ mode: 'edit', id: cls.id })
+  }
+
+  const handleSaveClass = async (data) => {
+    const teacher = teachers.find((t) => t.id === data.teacher_id)
+    const check = teacherMatchesClassCourse(teacher, data.course_id, courses)
+    if (data.teacher_id && !check.ok) {
+      notify.error(check.reason)
+      return
+    }
+    const payload = {
       name: data.name,
       code: data.code,
       course_id: data.course_id,
       teacher_id: data.teacher_id || null,
-    })
+    }
+    const { error } = classModal.mode === 'create'
+      ? await createClass(payload)
+      : await updateClass(classModal.id, payload)
     if (error) notify.error(error.message)
-    else { setClassModal(false); classForm.reset() }
+    else { setClassModal(null); classForm.reset() }
   }
 
   const classEnrollments = (classId) => enrollments.filter((e) => e.class_id === classId)
-
   const enrollClass = classes.find((c) => c.id === enrollModal)
-
   const enrollableStudents = students.map((s) => {
     const check = studentMatchesClassCourse(s, enrollClass)
     return { student: s, ...check }
@@ -82,9 +117,9 @@ export default function AdminClassesPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="page-title">Class Management</h1>
-          <p className="page-subtitle">Create classes under a course, assign teachers, enroll students</p>
+          <p className="page-subtitle">Create classes under a course, assign teachers from the same department, enroll students</p>
         </div>
-        <button onClick={() => setClassModal(true)} disabled={courses.length === 0} className="btn-primary disabled:opacity-50">
+        <button type="button" onClick={openCreate} disabled={courses.length === 0} className="btn-primary disabled:opacity-50">
           <HiOutlinePlus className="h-5 w-5" /> Create Class
         </button>
       </div>
@@ -117,8 +152,11 @@ export default function AdminClassesPage() {
                   </p>
                 </div>
                 <div className="flex gap-1">
-                  <button onClick={() => setEnrollModal(c.id)} className="rounded-lg p-2 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30" title="Enroll students">
+                  <button type="button" onClick={() => setEnrollModal(c.id)} className="rounded-lg p-2 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30" title="Enroll students">
                     <HiOutlineUserAdd className="h-5 w-5" />
+                  </button>
+                  <button type="button" onClick={() => openEdit(c)} className="rounded-lg p-2 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30" title="Edit class">
+                    <HiOutlinePencil className="h-5 w-5" />
                   </button>
                   <button type="button" onClick={() => handleDeleteClass(c)} className="rounded-lg p-2 text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30">
                     <HiOutlineTrash className="h-5 w-5" />
@@ -142,8 +180,8 @@ export default function AdminClassesPage() {
         </div>
       )}
 
-      <Modal isOpen={classModal} onClose={() => setClassModal(false)} title="Create Class">
-        <form onSubmit={classForm.handleSubmit(handleCreateClass)} className="space-y-4">
+      <Modal isOpen={!!classModal} onClose={() => setClassModal(null)} title={classModal?.mode === 'edit' ? 'Edit Class' : 'Create Class'}>
+        <form onSubmit={classForm.handleSubmit(handleSaveClass)} className="space-y-4">
           <div>
             <label className="label-text">Course</label>
             <select {...classForm.register('course_id', { required: true })} className="input-field">
@@ -159,10 +197,16 @@ export default function AdminClassesPage() {
             <label className="label-text">Assign Teacher</label>
             <select {...classForm.register('teacher_id')} className="input-field">
               <option value="">Select teacher...</option>
-              {teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {eligibleTeachers.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}{t.department_id ? '' : ' (no dept)'}</option>
+              ))}
             </select>
+            {watchedCourseId && eligibleTeachers.length === 0 && (
+              <p className="mt-1 text-xs text-amber-600">No teachers in this course&apos;s department. Assign department to a teacher first.</p>
+            )}
+            <p className="mt-1 text-xs text-slate-500">Teacher must belong to the same department as the selected course.</p>
           </div>
-          <button type="submit" className="btn-primary w-full">Create Class</button>
+          <button type="submit" className="btn-primary w-full">{classModal?.mode === 'edit' ? 'Save Changes' : 'Create Class'}</button>
         </form>
       </Modal>
 
@@ -175,6 +219,7 @@ export default function AdminClassesPage() {
             return (
               <button
                 key={s.id}
+                type="button"
                 disabled={disabled}
                 onClick={async () => {
                   const { error } = await enrollStudent(enrollModal, s.id)

@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import Modal from '../ui/Modal'
 
-export default function UserEditModal({ user, departments, courses, onClose, onSave, canEditRole, isSelfAdmin }) {
+export default function UserEditModal({ user, departments, courses, onClose, onSave, canEditRole, isSelfAdmin, lockDepartment = false }) {
   const form = useForm()
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export default function UserEditModal({ user, departments, courses, onClose, onS
     await onSave({
       name: data.name.trim(),
       roll_number: data.roll_number?.trim() || null,
-      department_id: data.department_id || null,
+      department_id: lockDepartment ? (user.department_id || null) : (data.department_id || null),
       course_id: data.role === 'student' ? (data.course_id || null) : null,
       role: canEditRole && !(isSelfAdmin && user.role === 'admin') ? data.role : user.role,
     })
@@ -48,10 +48,16 @@ export default function UserEditModal({ user, departments, courses, onClose, onS
         )}
         <div>
           <label className="label-text">Department</label>
-          <select {...form.register('department_id')} className="input-field">
-            <option value="">— None —</option>
-            {departments.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.code})</option>)}
-          </select>
+          {lockDepartment ? (
+            <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {departments.find((d) => d.id === user.department_id)?.name || 'Your department'}
+            </p>
+          ) : (
+            <select {...form.register('department_id')} className="input-field">
+              <option value="">— None —</option>
+              {departments.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.code})</option>)}
+            </select>
+          )}
         </div>
         {role === 'student' && (
           <div>

@@ -10,15 +10,19 @@ export default function useAppData() {
   const fetchAll = useDataStore((s) => s.fetchAll)
   const fetchAdminData = useInstitutionStore((s) => s.fetchAdminData)
   const fetchTeacherClasses = useInstitutionStore((s) => s.fetchTeacherClasses)
+  const fetchTeacherReferenceData = useInstitutionStore((s) => s.fetchTeacherReferenceData)
 
   useEffect(() => {
     if (user?.id) {
       fetchAll(user.id, profile?.role || 'student')
       if (profile?.role === 'admin') fetchAdminData()
-      if (profile?.role === 'teacher') fetchTeacherClasses(user.id)
+      if (profile?.role === 'teacher') {
+        fetchTeacherClasses(user.id)
+        fetchTeacherReferenceData(user.id)
+      }
       syncOfflineQueue(supabase, user.id)
     }
-  }, [user?.id, profile?.role, fetchAll, fetchAdminData, fetchTeacherClasses])
+  }, [user?.id, profile?.role, fetchAll, fetchAdminData, fetchTeacherClasses, fetchTeacherReferenceData])
 
   useEffect(() => {
     const handleOnline = () => {

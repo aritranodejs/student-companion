@@ -16,6 +16,7 @@
     "@vladmandic/face-api": "^1.7.15",
     "date-fns": "^4.4.0",
     "framer-motion": "^12.40.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-hook-form": "^7.79.0",

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { motion } from 'framer-motion'
 import { useAuthStore } from '../stores'
@@ -8,6 +8,8 @@ import { notify } from '../lib/notify.jsx'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const redirectTo = location.state?.from?.pathname
   const signIn = useAuthStore((s) => s.signIn)
   const fetchProfile = useAuthStore((s) => s.fetchProfile)
   const [loading, setLoading] = useState(false)
@@ -25,7 +27,7 @@ export default function LoginPage() {
       await fetchProfile(authData.user.id)
       const profile = useAuthStore.getState().profile
       notify.success(`Welcome back, ${profile?.name?.split(' ')[0] || 'there'}!`)
-      navigate(getHomeForRole(profile?.role || 'student'))
+      navigate(redirectTo || getHomeForRole(profile?.role || 'student'))
     }
     setLoading(false)
   }
