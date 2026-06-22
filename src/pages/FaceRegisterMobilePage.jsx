@@ -1,86 +1,53 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { HiOutlineCamera, HiOutlineShieldCheck } from 'react-icons/hi'
-import { useAuthStore } from '../stores'
-import { useInstitutionStore } from '../stores/institution'
 import FaceCapture from '../components/attendance/FaceCapture'
 import AlertModal from '../components/ui/AlertModal'
 import { notify } from '../lib/notify.jsx'
-import { supabase } from '../lib/supabase'
+import { fetchFaceRegistrationHandoff, submitFaceRegistrationHandoff } from '../lib/handoffApi'
 
 export default function FaceRegisterMobilePage() {
   const { token } = useParams()
-  const navigate = useNavigate()
-  const user = useAuthStore((s) => s.user)
-  const profile = useAuthStore((s) => s.profile)
-  const fetchProfile = useAuthStore((s) => s.fetchProfile)
-  const { saveFaceDescriptor, completeFaceRegistrationHandoff } = useInstitutionStore()
 
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [handoff, setHandoff] = useState(null)
+  const [studentName, setStudentName] = useState('')
+  const [hasFace, setHasFace] = useState(false)
   const [error, setError] = useState('')
   const [successModal, setSuccessModal] = useState(false)
 
   useEffect(() => {
-    if (user?.id) fetchProfile(user.id)
-  }, [user?.id, fetchProfile])
-
-  useEffect(() => {
     loadHandoff()
-  }, [token, user?.id])
+  }, [token])
 
   const loadHandoff = async () => {
     if (!token) return
     setLoading(true)
     setError('')
 
-    const { data: row, error: fetchErr } = await supabase
-      .from('face_registration_handoff_tokens')
-      .select('*')
-      .eq('id', token)
-      .single()
-
-    if (fetchErr || !row) {
-      setError('Invalid or expired QR code.')
+    const result = await fetchFaceRegistrationHandoff(token)
+    if (!result.ok) {
+      setError(result.error)
       setLoading(false)
       return
     }
 
-    if (user?.id && row.student_id !== user.id) {
-      setError('This QR code belongs to another student. Log in with your own account.')
-      setLoading(false)
-      return
-    }
-
-    if (row.status !== 'pending') {
-      setError(row.status === 'completed' ? 'Face already registered from this QR code.' : 'This QR code has expired.')
-      setLoading(false)
-      return
-    }
-
-    if (new Date(row.expires_at) < new Date()) {
-      await supabase.from('face_registration_handoff_tokens').update({ status: 'expired' }).eq('id', token).eq('status', 'pending')
-      setError('This QR code has expired. Generate a new one from your PC.')
-      setLoading(false)
-      return
-    }
-
-    setHandoff(row)
+    setHandoff(result.handoff)
+    setStudentName(result.student?.name || 'Student')
+    setHasFace(!!result.student?.has_face)
     setLoading(false)
   }
 
-  const handleRegister = async (descriptor, snapshot) => {
-    if (!handoff || !user) return
+  const handleRegister = async (descriptor) => {
+    if (!handoff || !token) return
     setBusy(true)
-    const { error } = await saveFaceDescriptor(user.id, descriptor, snapshot)
-    if (error) {
-      notify.error(error.message)
+    const result = await submitFaceRegistrationHandoff(token, descriptor)
+    if (!result.ok) {
+      notify.error(result.error)
       setBusy(false)
       return
     }
-    await completeFaceRegistrationHandoff(handoff.id)
-    await fetchProfile(user.id)
     setSuccessModal(true)
     setBusy(false)
   }
@@ -98,7 +65,7 @@ export default function FaceRegisterMobilePage() {
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700 p-4">
         <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-2xl dark:bg-slate-900">
           <p className="text-red-600 dark:text-red-400">{error}</p>
-          <Link to="/attendance" className="btn-primary mt-6 inline-block">Go to Attendance</Link>
+          <p className="mt-4 text-xs text-slate-500">Scan a fresh QR code from your PC to try again.</p>
         </div>
       </div>
     )
@@ -112,19 +79,18 @@ export default function FaceRegisterMobilePage() {
             <HiOutlineShieldCheck className="h-8 w-8" />
           </div>
           <h1 className="text-xl font-bold">Register Your Face</h1>
-          <p className="mt-1 text-sm text-indigo-100">One-time setup for attendance verification</p>
+          <p className="mt-1 text-sm text-indigo-100">No login needed — scan completed on your phone</p>
         </div>
 
         <div className="glass-card p-5">
-          {profile?.face_descriptor ? (
+          {hasFace ? (
             <div className="text-center">
-              <p className="text-sm text-emerald-600">You already have a face registered.</p>
-              <button type="button" onClick={() => navigate('/attendance')} className="btn-primary mt-4 w-full">
-                Go to Attendance
-              </button>
+              <p className="text-sm text-emerald-600">Face already registered for {studentName}.</p>
+              <p className="mt-2 text-xs text-slate-500">You can close this page and mark attendance from your PC.</p>
             </div>
           ) : (
             <>
+              <p className="mb-1 text-center text-sm font-medium text-slate-700 dark:text-slate-200">{studentName}</p>
               <p className="mb-4 flex items-center gap-2 rounded-xl bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-200">
                 <HiOutlineCamera /> Position your face in the frame and tap save
               </p>
@@ -137,17 +103,13 @@ export default function FaceRegisterMobilePage() {
             </>
           )}
         </div>
-
-        <p className="mt-4 text-center text-xs text-indigo-200">
-          Logged in as {profile?.name || user?.email}
-        </p>
       </div>
 
       <AlertModal
         isOpen={successModal}
-        onClose={() => navigate('/attendance')}
+        onClose={() => setSuccessModal(false)}
         title="Face Registered"
-        message="Your attendance face is saved. You can mark attendance from your PC using QR."
+        message="Your attendance face is saved. Return to your PC — it will update automatically."
         variant="success"
       />
     </div>

@@ -43,26 +43,8 @@ function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route
-        path="/face-register/mobile/:token"
-        element={
-          <ProtectedRoute>
-            <RoleRoute allowedRoles={[ROLES.STUDENT]}>
-              <FaceRegisterMobilePage />
-            </RoleRoute>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/attendance/mobile/:token"
-        element={
-          <ProtectedRoute>
-            <RoleRoute allowedRoles={[ROLES.STUDENT]}>
-              <AttendanceMobilePage />
-            </RoleRoute>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/face-register/mobile/:token" element={<FaceRegisterMobilePage />} />
+      <Route path="/attendance/mobile/:token" element={<AttendanceMobilePage />} />
       <Route
         path="/*"
         element={

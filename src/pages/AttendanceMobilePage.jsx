@@ -1,93 +1,56 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { HiOutlineLocationMarker, HiOutlineShieldCheck } from 'react-icons/hi'
-import { useAuthStore } from '../stores'
-import { useInstitutionStore } from '../stores/institution'
 import { getCurrentCoords } from '../lib/geo'
 import { buildAttendancePayload } from '../lib/attendanceMark'
+import { fetchAttendanceHandoff, submitAttendanceHandoff } from '../lib/handoffApi'
 import FaceCapture from '../components/attendance/FaceCapture'
 import AlertModal from '../components/ui/AlertModal'
 import { notify } from '../lib/notify.jsx'
-import { supabase } from '../lib/supabase'
 
 export default function AttendanceMobilePage() {
   const { token } = useParams()
-  const navigate = useNavigate()
-  const user = useAuthStore((s) => s.user)
-  const profile = useAuthStore((s) => s.profile)
-  const fetchProfile = useAuthStore((s) => s.fetchProfile)
-  const { markDailyAttendance, completeAttendanceHandoff } = useInstitutionStore()
 
   const [handoff, setHandoff] = useState(null)
   const [session, setSession] = useState(null)
+  const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [marking, setMarking] = useState(false)
   const [coords, setCoords] = useState(null)
   const [locLoading, setLocLoading] = useState(false)
   const [successModal, setSuccessModal] = useState(false)
+  const [successClass, setSuccessClass] = useState('')
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (user?.id) fetchProfile(user.id)
-  }, [user?.id, fetchProfile])
-
-  useEffect(() => {
     loadHandoff()
-  }, [token, user?.id])
+  }, [token])
 
   const loadHandoff = async () => {
     if (!token) return
     setLoading(true)
     setError('')
 
-    const { data: row, error: fetchErr } = await supabase
-      .from('attendance_handoff_tokens')
-      .select('*')
-      .eq('id', token)
-      .single()
-
-    if (fetchErr || !row) {
-      setError('Invalid or expired QR code.')
+    const result = await fetchAttendanceHandoff(token)
+    if (!result.ok) {
+      setError(result.error)
       setLoading(false)
       return
     }
 
-    if (user?.id && row.student_id !== user.id) {
-      setError('This QR code belongs to another student. Log in with your own account.')
+    if (result.existing_log_id) {
+      setError('You already marked attendance for this class today.')
       setLoading(false)
       return
     }
 
-    if (row.status !== 'pending') {
-      setError(row.status === 'completed' ? 'Attendance already marked from this QR code.' : 'This QR code has expired.')
-      setLoading(false)
-      return
-    }
-
-    if (new Date(row.expires_at) < new Date()) {
-      await supabase.from('attendance_handoff_tokens').update({ status: 'expired' }).eq('id', token).eq('status', 'pending')
-      setError('This QR code has expired. Generate a new one from your PC.')
-      setLoading(false)
-      return
-    }
-
-    const { data: sess } = await supabase
-      .from('attendance_sessions')
-      .select('*, class:classes(id, name, code, campus_lat, campus_lng, campus_radius_m)')
-      .eq('id', row.session_id)
-      .single()
-
-    if (!sess?.is_open) {
-      setError('Attendance session is closed.')
-      setLoading(false)
-      return
-    }
-
-    setHandoff(row)
+    const sess = result.session
+    setHandoff(result.handoff)
     setSession(sess)
+    setProfile(result.profile)
     setLoading(false)
 
-    if (sess.require_location) {
+    if (sess?.require_location) {
       setLocLoading(true)
       try {
         const c = await getCurrentCoords()
@@ -101,15 +64,8 @@ export default function AttendanceMobilePage() {
   }
 
   const handleVerify = async (descriptor) => {
-    if (!session || !handoff || !user) return
+    if (!session || !handoff || !token) return
     setMarking(true)
-
-    const { data: existing } = await supabase
-      .from('attendance_logs')
-      .select('id')
-      .eq('session_id', session.id)
-      .eq('student_id', user.id)
-      .maybeSingle()
 
     const result = await buildAttendancePayload({
       session,
@@ -117,7 +73,7 @@ export default function AttendanceMobilePage() {
       liveDescriptor: descriptor,
       coords,
       method: 'mobile',
-      existingLog: existing,
+      existingLog: null,
     })
 
     if (result.error) {
@@ -126,14 +82,14 @@ export default function AttendanceMobilePage() {
       return
     }
 
-    const { data: log, error: markErr } = await markDailyAttendance(result.payload, user.id, { silent: true })
-    if (markErr) {
-      notify.error(markErr.message)
+    const submit = await submitAttendanceHandoff(token, result.payload)
+    if (!submit.ok) {
+      notify.error(submit.error)
       setMarking(false)
       return
     }
 
-    await completeAttendanceHandoff(handoff.id, log?.id)
+    setSuccessClass(submit.class_name || session?.class?.name || 'Class')
     setSuccessModal(true)
     setMarking(false)
   }
@@ -151,7 +107,7 @@ export default function AttendanceMobilePage() {
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700 p-4">
         <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-2xl dark:bg-slate-900">
           <p className="text-red-600 dark:text-red-400">{error}</p>
-          <Link to="/attendance" className="btn-primary mt-6 inline-block">Go to Attendance</Link>
+          <p className="mt-4 text-xs text-slate-500">Scan a fresh QR code from your PC to try again.</p>
         </div>
       </div>
     )
@@ -167,11 +123,14 @@ export default function AttendanceMobilePage() {
           <h1 className="text-xl font-bold">Mobile Attendance</h1>
           <p className="mt-1 text-sm text-indigo-100">{session?.class?.name}</p>
           <p className="text-xs text-indigo-200">{session?.class?.code}</p>
+          <p className="mt-2 text-xs text-indigo-200/80">No login needed on this phone</p>
         </div>
 
         <div className="glass-card p-5">
           {!profile?.face_descriptor ? (
-            <p className="text-center text-sm text-amber-600">Register your face on a device with a camera first, then scan again.</p>
+            <p className="text-center text-sm text-amber-600">
+              Register your face first (from PC or phone QR), then scan this attendance QR again.
+            </p>
           ) : (
             <>
               {session?.require_location && (
@@ -195,16 +154,18 @@ export default function AttendanceMobilePage() {
           )}
         </div>
 
-        <p className="mt-4 text-center text-xs text-indigo-200">
-          Logged in as {profile?.name || user?.email}
-        </p>
+        {profile?.name && (
+          <p className="mt-4 text-center text-xs text-indigo-200">
+            Marking for {profile.name}
+          </p>
+        )}
       </div>
 
       <AlertModal
         isOpen={successModal}
-        onClose={() => navigate('/attendance')}
+        onClose={() => setSuccessModal(false)}
         title="Attendance Marked"
-        message={`${session?.class?.name} — verified from your phone.`}
+        message={`${successClass} — verified from your phone. You can close this page.`}
         variant="success"
       />
     </div>

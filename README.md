@@ -56,6 +56,7 @@ Open **Supabase → SQL Editor** and run each file **in this exact order**:
 | 10 | `supabase/fix-production-rls.sql` | **Production hardening (required)** |
 | 11 | `supabase/schema-attendance-handoff.sql` | **QR mobile attendance (PC without camera)** |
 | 12 | `supabase/schema-face-registration-handoff.sql` | **QR face registration from phone** |
+| 13 | `supabase/schema-handoff-anonymous.sql` | **QR handoff without phone login (required)** |
 
 If signup fails, also run `supabase/fix-signup-trigger.sql`.
 
