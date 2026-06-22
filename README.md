@@ -58,6 +58,8 @@ Open **Supabase → SQL Editor** and run each file **in this exact order**:
 | 12 | `supabase/schema-face-registration-handoff.sql` | **QR face registration from phone** |
 | 13 | `supabase/schema-handoff-anonymous.sql` | **QR handoff without phone login (required)** |
 | 14 | `supabase/fix-handoff-profile-trigger.sql` | **Fix "Not authorized to update profile" on phone QR** |
+| 15 | `supabase/fix-teacher-class-management.sql` | **Teacher: create classes, enroll students, submissions** |
+| 16 | `supabase/fix-uniqueness-validations.sql` | **Uniqueness: class code/course, roll number, trims** |
 
 If signup fails, also run `supabase/fix-signup-trigger.sql`.
 

@@ -38,11 +38,12 @@ export function studentMatchesClassCourse(student, classRow) {
   return { ok: true }
 }
 
-export function teacherCanEditStudent(teacher, student, courses) {
+export function teacherCanEditStudent(teacher, student, courses, options = {}) {
   if (!teacher || !student) return false
   if (teacher.role === 'admin') return true
   if (teacher.role !== 'teacher') return false
   if (student.role !== 'student') return false
+  if (options.enrolledInMyClass) return true
   if (!teacher.department_id) return false
   if (student.department_id === teacher.department_id) return true
   if (student.course_id) {
@@ -50,6 +51,11 @@ export function teacherCanEditStudent(teacher, student, courses) {
     return course?.department_id === teacher.department_id
   }
   return false
+}
+
+export function teacherDeptCourses(courses, departmentId) {
+  if (!departmentId) return []
+  return courses.filter((c) => c.department_id === departmentId)
 }
 
 export function teacherMatchesClassCourse(teacher, courseId, courses) {
@@ -83,4 +89,82 @@ export function validateTeacherStudentPayload(teacher, payload, courses) {
     }
   }
   return { ok: true }
+}
+
+export function normalizeCode(value) {
+  return (value || '').trim().toUpperCase()
+}
+
+export function normalizeText(value) {
+  return (value || '').trim()
+}
+
+export function validateDepartmentPayload(payload) {
+  const name = normalizeText(payload.name)
+  const code = normalizeCode(payload.code)
+  if (!name) return { ok: false, reason: 'Department name is required' }
+  if (!code) return { ok: false, reason: 'Department code is required' }
+  if (!/^[A-Z0-9_-]{2,12}$/.test(code)) {
+    return { ok: false, reason: 'Department code: 2–12 letters, numbers, - or _' }
+  }
+  return { ok: true, payload: { ...payload, name, code, description: normalizeText(payload.description) || null } }
+}
+
+export function validateCoursePayload(payload) {
+  const name = normalizeText(payload.name)
+  const code = normalizeCode(payload.code)
+  if (!payload.department_id) return { ok: false, reason: 'Department is required' }
+  if (!name) return { ok: false, reason: 'Course name is required' }
+  if (!code) return { ok: false, reason: 'Course code is required' }
+  if (!/^[A-Z0-9_-]{2,16}$/.test(code)) {
+    return { ok: false, reason: 'Course code: 2–16 letters, numbers, - or _' }
+  }
+  const years = payload.duration_years
+  if (years != null && years !== '' && (Number(years) < 1 || Number(years) > 10)) {
+    return { ok: false, reason: 'Duration must be between 1 and 10 years' }
+  }
+  return {
+    ok: true,
+    payload: {
+      ...payload,
+      name,
+      code,
+      description: normalizeText(payload.description) || null,
+      duration_years: years ? Number(years) : null,
+    },
+  }
+}
+
+export function validateClassPayload(payload, classes, excludeId = null) {
+  const name = normalizeText(payload.name)
+  const code = normalizeCode(payload.code)
+  if (!payload.course_id) return { ok: false, reason: 'Course is required for every class' }
+  if (!name) return { ok: false, reason: 'Class name is required' }
+  if (!code) return { ok: false, reason: 'Class code is required' }
+  if (!/^[A-Z0-9_-]{2,20}$/.test(code)) {
+    return { ok: false, reason: 'Class code: 2–20 letters, numbers, - or _' }
+  }
+  const duplicate = (classes || []).find(
+    (c) => c.course_id === payload.course_id
+      && normalizeCode(c.code) === code
+      && c.id !== excludeId
+  )
+  if (duplicate) return { ok: false, reason: `Class code "${code}" already exists for this course` }
+  return { ok: true, payload: { ...payload, name, code } }
+}
+
+export function validateRollNumber(rollNumber) {
+  const roll = normalizeText(rollNumber)
+  if (!roll) return { ok: true, value: null }
+  if (roll.length < 3 || roll.length > 32) {
+    return { ok: false, reason: 'Roll number must be 3–32 characters' }
+  }
+  if (!/^[A-Za-z0-9/_-]+$/.test(roll)) {
+    return { ok: false, reason: 'Roll number: letters, numbers, /, - or _ only' }
+  }
+  return { ok: true, value: roll.toUpperCase() }
+}
+
+export function isAlreadyEnrolled(enrollments, classId, studentId) {
+  return (enrollments || []).some((e) => e.class_id === classId && e.student_id === studentId)
 }

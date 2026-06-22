@@ -32,6 +32,7 @@ import TeacherAttendancePage from './pages/teacher/TeacherAttendancePage'
 import TeacherExamsPage from './pages/teacher/TeacherExamsPage'
 import TeacherGradesPage from './pages/teacher/TeacherGradesPage'
 import TeacherStudentsPage from './pages/teacher/TeacherStudentsPage'
+import TeacherClassesPage from './pages/teacher/TeacherClassesPage'
 import AttendanceMobilePage from './pages/AttendanceMobilePage'
 import FaceRegisterMobilePage from './pages/FaceRegisterMobilePage'
 
@@ -61,7 +62,7 @@ function AppRoutes() {
 
                 {/* Teacher routes */}
                 <Route path="/teacher" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherDashboard /></RoleRoute>} />
-                <Route path="/teacher/classes" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherDashboard /></RoleRoute>} />
+                <Route path="/teacher/classes" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherClassesPage /></RoleRoute>} />
                 <Route path="/teacher/students" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherStudentsPage /></RoleRoute>} />
                 <Route path="/teacher/assignments" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherAssignmentsPage /></RoleRoute>} />
                 <Route path="/teacher/grades" element={<RoleRoute allowedRoles={[ROLES.TEACHER]}><TeacherGradesPage /></RoleRoute>} />

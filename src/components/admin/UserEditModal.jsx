@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import Modal from '../ui/Modal'
+import { validateRollNumber } from '../../lib/institutionRules'
 
 export default function UserEditModal({ user, departments, courses, onClose, onSave, canEditRole, isSelfAdmin, lockDepartment = false }) {
   const form = useForm()
@@ -24,12 +25,20 @@ export default function UserEditModal({ user, departments, courses, onClose, onS
   const deptCourses = courses.filter((c) => !deptId || c.department_id === deptId)
 
   const submit = async (data) => {
+    const roleValue = canEditRole && !(isSelfAdmin && user.role === 'admin') ? data.role : user.role
+    if (roleValue === 'student' && data.roll_number) {
+      const rollCheck = validateRollNumber(data.roll_number)
+      if (!rollCheck.ok) {
+        form.setError('roll_number', { message: rollCheck.reason })
+        return
+      }
+    }
     await onSave({
       name: data.name.trim(),
       roll_number: data.roll_number?.trim() || null,
       department_id: lockDepartment ? (user.department_id || null) : (data.department_id || null),
-      course_id: data.role === 'student' ? (data.course_id || null) : null,
-      role: canEditRole && !(isSelfAdmin && user.role === 'admin') ? data.role : user.role,
+      course_id: roleValue === 'student' ? (data.course_id || null) : null,
+      role: roleValue,
     })
   }
 
@@ -43,7 +52,10 @@ export default function UserEditModal({ user, departments, courses, onClose, onS
         {role === 'student' && (
           <div>
             <label className="label-text">Roll Number</label>
-            <input {...form.register('roll_number')} className="input-field" />
+            <input {...form.register('roll_number')} className="input-field" placeholder="BCA2024001" />
+            {form.formState.errors.roll_number && (
+              <p className="mt-1 text-xs text-red-500">{form.formState.errors.roll_number.message}</p>
+            )}
           </div>
         )}
         <div>

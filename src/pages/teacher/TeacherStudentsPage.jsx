@@ -58,7 +58,7 @@ export default function TeacherStudentsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="page-title">Department Students</h1>
-        <p className="page-subtitle">Profile photos, attendance face mapping, and student records</p>
+        <p className="page-subtitle">Edit admission course & roll number, then enroll students in My Classes</p>
       </div>
 
       {!profile?.department_id && (

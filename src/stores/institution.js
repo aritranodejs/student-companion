@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { supabase } from '../lib/supabase'
 import { notify } from '../lib/notify.jsx'
-import { isCampusConfigured, studentMatchesClassCourse, teacherCanEditStudent, teacherMatchesClassCourse, validateTeacherStudentPayload } from '../lib/institutionRules'
+import { isCampusConfigured, studentMatchesClassCourse, teacherCanEditStudent, teacherMatchesClassCourse, validateTeacherStudentPayload, validateDepartmentPayload, validateCoursePayload, validateClassPayload, validateRollNumber, isAlreadyEnrolled } from '../lib/institutionRules'
+import { formatDbError } from '../lib/dbErrors'
 
 const CLASS_SELECT = `
   *,
@@ -79,16 +80,20 @@ export const useInstitutionStore = create((set, get) => ({
   },
 
   createDepartment: async (payload) => {
-    const { data, error } = await supabase.from('departments').insert(payload).select().single()
-    if (error) return { error }
+    const check = validateDepartmentPayload(payload)
+    if (!check.ok) return { error: { message: check.reason } }
+    const { data, error } = await supabase.from('departments').insert(check.payload).select().single()
+    if (error) return { error: { message: formatDbError(error) } }
     set({ departments: [...get().departments, data].sort((a, b) => a.name.localeCompare(b.name)) })
     notify.success('Department created')
     return { data }
   },
 
   updateDepartment: async (id, payload) => {
-    const { data, error } = await supabase.from('departments').update(payload).eq('id', id).select().single()
-    if (error) return { error }
+    const check = validateDepartmentPayload(payload)
+    if (!check.ok) return { error: { message: check.reason } }
+    const { data, error } = await supabase.from('departments').update(check.payload).eq('id', id).select().single()
+    if (error) return { error: { message: formatDbError(error) } }
     set({ departments: get().departments.map((d) => (d.id === id ? data : d)) })
     notify.success('Department updated')
     return { data }
@@ -96,7 +101,7 @@ export const useInstitutionStore = create((set, get) => ({
 
   deleteDepartment: async (id) => {
     const { error } = await supabase.from('departments').delete().eq('id', id)
-    if (error) return { error }
+    if (error) return { error: { message: formatDbError(error) } }
     set({
       departments: get().departments.filter((d) => d.id !== id),
       courses: get().courses.filter((c) => c.department_id !== id),
@@ -106,25 +111,29 @@ export const useInstitutionStore = create((set, get) => ({
   },
 
   createCourse: async (payload) => {
+    const check = validateCoursePayload(payload)
+    if (!check.ok) return { error: { message: check.reason } }
     const { data, error } = await supabase
       .from('courses')
-      .insert(payload)
+      .insert(check.payload)
       .select('*, department:departments(id, name, code)')
       .single()
-    if (error) return { error }
+    if (error) return { error: { message: formatDbError(error) } }
     set({ courses: [...get().courses, data].sort((a, b) => a.name.localeCompare(b.name)) })
     notify.success('Course created')
     return { data }
   },
 
   updateCourse: async (id, payload) => {
+    const check = validateCoursePayload(payload)
+    if (!check.ok) return { error: { message: check.reason } }
     const { data, error } = await supabase
       .from('courses')
-      .update(payload)
+      .update(check.payload)
       .eq('id', id)
       .select('*, department:departments(id, name, code)')
       .single()
-    if (error) return { error }
+    if (error) return { error: { message: formatDbError(error) } }
     set({ courses: get().courses.map((c) => (c.id === id ? data : c)) })
     notify.success('Course updated')
     return { data }
@@ -132,7 +141,7 @@ export const useInstitutionStore = create((set, get) => ({
 
   deleteCourse: async (id) => {
     const { error } = await supabase.from('courses').delete().eq('id', id)
-    if (error) return { error }
+    if (error) return { error: { message: formatDbError(error) } }
     set({ courses: get().courses.filter((c) => c.id !== id) })
     notify.success('Course deleted')
     return {}
@@ -180,8 +189,25 @@ export const useInstitutionStore = create((set, get) => ({
     }
     if (!target) return { error: { message: 'User not found' } }
 
-    if (actor.role === 'teacher' && !teacherCanEditStudent(actor, target, get().courses)) {
-      return { error: { message: 'You can only edit students in your department' } }
+    let enrolledInMyClass = false
+    if (actor.role === 'teacher') {
+      const myClassIds = get().classes.filter((c) => c.teacher_id === actor.id).map((c) => c.id)
+      enrolledInMyClass = get().enrollments.some(
+        (e) => e.student_id === userId && myClassIds.includes(e.class_id)
+      )
+      if (!enrolledInMyClass && myClassIds.length) {
+        const { data: enr } = await supabase
+          .from('class_enrollments')
+          .select('id')
+          .eq('student_id', userId)
+          .in('class_id', myClassIds)
+          .limit(1)
+        enrolledInMyClass = !!(enr?.length)
+      }
+    }
+
+    if (actor.role === 'teacher' && !teacherCanEditStudent(actor, target, get().courses, { enrolledInMyClass })) {
+      return { error: { message: 'You can only edit students in your department or your classes' } }
     }
 
     const payloadCheck = validateTeacherStudentPayload(actor, payload, get().courses)
@@ -200,6 +226,11 @@ export const useInstitutionStore = create((set, get) => ({
       const course = get().courses.find((c) => c.id === updates.course_id)
       if (course) updates.department_id = course.department_id
     }
+    if (target.role === 'student' || updates.role === 'student') {
+      const rollCheck = validateRollNumber(updates.roll_number ?? target.roll_number)
+      if (!rollCheck.ok) return { error: { message: rollCheck.reason } }
+      if (rollCheck.value !== undefined) updates.roll_number = rollCheck.value
+    }
     if (target.role === 'admin' && userId === actor.id) {
       delete updates.role
     }
@@ -208,7 +239,7 @@ export const useInstitutionStore = create((set, get) => ({
     }
 
     const { data, error } = await supabase.from('profiles').update(updates).eq('id', userId).select().single()
-    if (error) return { error }
+    if (error) return { error: { message: formatDbError(error) } }
     set({ allUsers: get().allUsers.map((u) => (u.id === userId ? data : u)) })
     notify.success('User updated')
     return { data }
@@ -216,33 +247,92 @@ export const useInstitutionStore = create((set, get) => ({
 
   fetchTeacherDeptStudents: async (teacherId) => {
     const { data: teacher } = await supabase.from('profiles').select('*').eq('id', teacherId).single()
-    if (!teacher?.department_id) return []
 
-    const { data: deptCourses } = await supabase.from('courses').select('id').eq('department_id', teacher.department_id)
-    const courseIds = (deptCourses || []).map((c) => c.id)
+    const { data: myClasses } = await supabase.from('classes').select('id').eq('teacher_id', teacherId)
+    const classIds = (myClasses || []).map((c) => c.id)
 
-    let query = supabase.from('profiles').select('*').eq('role', 'student')
-    if (courseIds.length) {
-      query = query.or(`department_id.eq.${teacher.department_id},course_id.in.(${courseIds.join(',')})`)
-    } else {
-      query = query.eq('department_id', teacher.department_id)
+    let enrolledIds = []
+    if (classIds.length) {
+      const { data: enr } = await supabase.from('class_enrollments').select('student_id').in('class_id', classIds)
+      enrolledIds = [...new Set((enr || []).map((e) => e.student_id))]
     }
-    const { data } = await query.order('name')
-    return data || []
+
+    const byId = new Map()
+
+    if (teacher?.department_id) {
+      const { data: deptCourses } = await supabase.from('courses').select('id').eq('department_id', teacher.department_id)
+      const courseIds = (deptCourses || []).map((c) => c.id)
+
+      let query = supabase.from('profiles').select('*').eq('role', 'student')
+      if (courseIds.length) {
+        query = query.or(`department_id.eq.${teacher.department_id},course_id.in.(${courseIds.join(',')})`)
+      } else {
+        query = query.eq('department_id', teacher.department_id)
+      }
+      const { data } = await query.order('name')
+      ;(data || []).forEach((s) => byId.set(s.id, s))
+    }
+
+    if (enrolledIds.length) {
+      const { data } = await supabase.from('profiles').select('*').in('id', enrolledIds).eq('role', 'student').order('name')
+      ;(data || []).forEach((s) => byId.set(s.id, s))
+    }
+
+    return [...byId.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  },
+
+  fetchTeacherClassData: async (teacherId) => {
+    set({ loading: true })
+    try {
+      const [classesRes, coursesRes, departmentsRes] = await Promise.all([
+        supabase.from('classes').select(CLASS_SELECT).eq('teacher_id', teacherId).order('name'),
+        supabase.from('courses').select('*, department:departments(id, name, code)').order('name'),
+        supabase.from('departments').select('*').order('name'),
+      ])
+      const classes = classesRes.data || []
+      const classIds = classes.map((c) => c.id)
+
+      let enrollments = []
+      if (classIds.length) {
+        const { data: enr } = await supabase
+          .from('class_enrollments')
+          .select('*, student:profiles!class_enrollments_student_id_fkey(id, name, email, roll_number, course_id, face_descriptor, face_image_url)')
+          .in('class_id', classIds)
+        enrollments = enr || []
+      }
+
+      set({
+        classes,
+        courses: coursesRes.data || [],
+        departments: departmentsRes.data || [],
+        enrollments,
+      })
+      return { classes, enrollments }
+    } finally {
+      set({ loading: false })
+    }
   },
 
   createClass: async (payload) => {
-    if (payload.teacher_id && payload.course_id) {
-      const teacher = get().allUsers.find((u) => u.id === payload.teacher_id)
-      const check = teacherMatchesClassCourse(teacher, payload.course_id, get().courses)
+    const classCheck = validateClassPayload(payload, get().classes)
+    if (!classCheck.ok) return { error: { message: classCheck.reason } }
+    const normalized = classCheck.payload
+
+    if (normalized.teacher_id && normalized.course_id) {
+      let teacher = get().allUsers.find((u) => u.id === normalized.teacher_id)
+      if (!teacher) {
+        const { data } = await supabase.from('profiles').select('*').eq('id', normalized.teacher_id).single()
+        teacher = data
+      }
+      const check = teacherMatchesClassCourse(teacher, normalized.course_id, get().courses)
       if (!check.ok) return { error: { message: check.reason } }
     }
     const { data, error } = await supabase
       .from('classes')
-      .insert(payload)
+      .insert(normalized)
       .select(CLASS_SELECT)
       .single()
-    if (error) return { error }
+    if (error) return { error: { message: formatDbError(error) } }
     const teacher = get().allUsers.find((u) => u.id === data.teacher_id)
     set({ classes: [{ ...data, teacher: teacher || null }, ...get().classes] })
     notify.success('Class created successfully')
@@ -251,20 +341,35 @@ export const useInstitutionStore = create((set, get) => ({
 
   updateClass: async (id, payload) => {
     const existing = get().classes.find((c) => c.id === id)
-    const teacherId = payload.teacher_id ?? existing?.teacher_id
-    const courseId = payload.course_id ?? existing?.course_id
+    const merged = {
+      name: payload.name ?? existing?.name,
+      code: payload.code ?? existing?.code,
+      course_id: payload.course_id ?? existing?.course_id,
+      teacher_id: payload.teacher_id ?? existing?.teacher_id,
+      ...payload,
+    }
+    const classCheck = validateClassPayload(merged, get().classes, id)
+    if (!classCheck.ok) return { error: { message: classCheck.reason } }
+    const normalized = classCheck.payload
+
+    const teacherId = normalized.teacher_id ?? existing?.teacher_id
+    const courseId = normalized.course_id ?? existing?.course_id
     if (teacherId && courseId) {
-      const teacher = get().allUsers.find((u) => u.id === teacherId)
+      let teacher = get().allUsers.find((u) => u.id === teacherId)
+      if (!teacher) {
+        const { data } = await supabase.from('profiles').select('*').eq('id', teacherId).single()
+        teacher = data
+      }
       const check = teacherMatchesClassCourse(teacher, courseId, get().courses)
       if (!check.ok) return { error: { message: check.reason } }
     }
     const { data, error } = await supabase
       .from('classes')
-      .update(payload)
+      .update(normalized)
       .eq('id', id)
       .select(CLASS_SELECT)
       .single()
-    if (error) return { error }
+    if (error) return { error: { message: formatDbError(error) } }
     const teacher = get().allUsers.find((u) => u.id === data.teacher_id)
     set({ classes: get().classes.map((c) => (c.id === id ? { ...data, teacher: teacher || null } : c)) })
     notify.success('Class updated')
@@ -273,7 +378,7 @@ export const useInstitutionStore = create((set, get) => ({
 
   deleteClass: async (id) => {
     const { error } = await supabase.from('classes').delete().eq('id', id)
-    if (error) return { error }
+    if (error) return { error: { message: formatDbError(error) } }
     set({ classes: get().classes.filter((c) => c.id !== id) })
     notify.success('Class deleted')
     return {}
@@ -281,17 +386,38 @@ export const useInstitutionStore = create((set, get) => ({
 
   enrollStudent: async (classId, studentId) => {
     const cls = get().classes.find((c) => c.id === classId)
-    const student = get().allUsers.find((u) => u.id === studentId)
+    if (!cls) return { error: { message: 'Class not found' } }
+
+    if (isAlreadyEnrolled(get().enrollments, classId, studentId)) {
+      return { error: { message: 'Student is already enrolled in this class' } }
+    }
+
+    const { data: existing } = await supabase
+      .from('class_enrollments')
+      .select('id')
+      .eq('class_id', classId)
+      .eq('student_id', studentId)
+      .maybeSingle()
+    if (existing) return { error: { message: 'Student is already enrolled in this class' } }
+
+    let student = get().allUsers.find((u) => u.id === studentId)
+    if (!student) {
+      const { data } = await supabase.from('profiles').select('*').eq('id', studentId).single()
+      student = data
+    }
+    if (!student) return { error: { message: 'Student not found' } }
+    if (student.role !== 'student') return { error: { message: 'Only students can be enrolled in classes' } }
+
     const check = studentMatchesClassCourse(student, cls)
     if (!check.ok) return { error: { message: check.reason } }
 
     const { data, error } = await supabase
       .from('class_enrollments')
       .insert({ class_id: classId, student_id: studentId })
-      .select('*')
+      .select('*, student:profiles!class_enrollments_student_id_fkey(id, name, email, roll_number, course_id)')
       .single()
-    if (error) return { error }
-    const row = { ...data, student }
+    if (error) return { error: { message: formatDbError(error) } }
+    const row = { ...data, student: data.student || student }
     set({ enrollments: [...get().enrollments, row] })
     notify.success('Student enrolled in class')
     return { data: row }
@@ -299,7 +425,7 @@ export const useInstitutionStore = create((set, get) => ({
 
   unenrollStudent: async (enrollmentId) => {
     const { error } = await supabase.from('class_enrollments').delete().eq('id', enrollmentId)
-    if (error) return { error }
+    if (error) return { error: { message: formatDbError(error) } }
     set({ enrollments: get().enrollments.filter((e) => e.id !== enrollmentId) })
     notify.success('Student removed from class')
     return {}
@@ -564,9 +690,12 @@ export const useInstitutionStore = create((set, get) => ({
       .eq('class_id', payload.class_id)
 
     if (enrolled?.length) {
-      await supabase.from('assignment_submissions').insert(
+      const { error: subErr } = await supabase.from('assignment_submissions').insert(
         enrolled.map((e) => ({ assignment_id: data.id, student_id: e.student_id, status: 'pending' }))
       )
+      if (subErr) {
+        notify.warning(`Assignment posted but submission rows failed: ${subErr.message}`)
+      }
       await supabase.rpc('notify_class_students', {
         p_class_id: payload.class_id,
         p_title: 'New Assignment',

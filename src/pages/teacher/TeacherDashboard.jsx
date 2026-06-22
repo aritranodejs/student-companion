@@ -15,6 +15,7 @@ export default function TeacherDashboard() {
   }, [user?.id, fetchTeacherClasses])
 
   const actions = [
+    { to: '/teacher/classes', icon: HiOutlineOfficeBuilding, label: 'Manage Classes', color: 'from-indigo-500 to-violet-600' },
     { to: '/teacher/assignments', icon: HiOutlineDocumentText, label: 'Post Assignment', color: 'from-purple-500 to-indigo-600' },
     { to: '/teacher/attendance', icon: HiOutlineClipboardCheck, label: 'Mark Attendance', color: 'from-teal-500 to-emerald-600' },
     { to: '/teacher/exams', icon: HiOutlineCalendar, label: 'Schedule Exam', color: 'from-rose-500 to-pink-600' },
@@ -29,10 +30,10 @@ export default function TeacherDashboard() {
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard icon={HiOutlineOfficeBuilding} label="My Classes" value={classes.length} color="indigo" />
-        <StatCard icon={HiOutlineDocumentText} label="Quick Actions" value={3} subtitle="Available tools" color="emerald" />
+        <StatCard icon={HiOutlineDocumentText} label="Quick Actions" value={4} subtitle="Available tools" color="emerald" />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {actions.map(({ to, icon: Icon, label, color }) => (
           <Link key={to} to={to} className={`glass-card-hover flex items-center gap-4 p-5 bg-gradient-to-br ${color} text-white`}>
             <Icon className="h-8 w-8 opacity-90" />
@@ -45,11 +46,13 @@ export default function TeacherDashboard() {
         <div className="glass-card p-6">
           <h2 className="mb-4 font-semibold">Your Classes</h2>
           {classes.length === 0 ? (
-            <p className="text-sm text-slate-500">No classes assigned yet. Contact admin.</p>
+            <p className="text-sm text-slate-500">
+              No classes yet. <Link to="/teacher/classes" className="text-indigo-600 hover:underline">Create a class</Link> to get started.
+            </p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {classes.map((c) => (
-                <div key={c.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                <Link key={c.id} to="/teacher/classes" className="rounded-xl border border-slate-200 p-4 transition hover:border-indigo-300 dark:border-slate-700 dark:hover:border-indigo-700">
                   <p className="font-semibold text-slate-900 dark:text-white">{c.name}</p>
                   <p className="text-sm text-indigo-600">{c.code}</p>
                   {c.course && (
@@ -58,7 +61,7 @@ export default function TeacherDashboard() {
                     </p>
                   )}
                   <p className="mt-1 text-xs text-slate-500">{c.enrollments?.[0]?.count || 0} students</p>
-                </div>
+                </Link>
               ))}
             </div>
           )}
